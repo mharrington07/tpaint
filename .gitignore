@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Debug files
+debug_*.png
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Don't commit extracted textures (large)
+# textures/

@@ -34,47 +34,47 @@ A visual building tool for designing Terraria structures using actual game textu
 
 ### 🪟 Windows
 
-#### Prerequisites
-- **Python 3.8+** - Download from [python.org](https://www.python.org/downloads/)
-- **Java Runtime** - Download from [Adoptium](https://adoptium.net/) (required for texture extraction)
-- **Terraria** - Steam or GOG installation
+#### Using the Executable (Recommended)
+1. Download `TPaint.exe` from the [Releases](https://github.com/mharrington07/tpaint/releases) page
+2. Run `TPaint.exe`
+3. On first run, the app will:
+   - **Auto-download Java JRE** if not installed (portable, no admin needed)
+   - Download TExtract for texture extraction
+   - Find your Terraria installation
+   - Extract textures automatically
 
-#### Steps
-
-1. **Clone or download the repository:**
+#### From Source
+1. **Prerequisites:** Python 3.8+ from [python.org](https://www.python.org/downloads/)
+2. Clone and install:
    ```powershell
    git clone https://github.com/mharrington07/tpaint.git
    cd tpaint
-   ```
-
-2. **Install Python dependencies:**
-   ```powershell
    pip install -r requirements.txt
-   ```
-
-3. **Run the app:**
-   ```powershell
    python paint_app_main.py
    ```
 
-4. **First run setup:**
-   - The app will automatically download TExtract
-   - It will find your Terraria installation (Steam/GOG)
-   - Textures will be extracted to the `textures/` folder
+> **Note:** Java is auto-downloaded if not found - no manual installation required!
 
 #### Troubleshooting (Windows)
 - If textures aren't found, run `python setup.py` manually
-- Make sure Java is installed and in your PATH
 - For GOG installations, the app checks `C:\Program Files (x86)\GOG Galaxy\Games\Terraria`
 
 ---
 
 ### 🐧 Linux
 
-#### Prerequisites
-- **Python 3.8+** with tkinter
-- **Java Runtime** (OpenJDK)
-- **Terraria** - Steam (native or Proton)
+#### Using the Executable (Recommended)
+1. Download `TPaint` from the [Releases](https://github.com/mharrington07/tpaint/releases) page
+2. Make it executable: `chmod +x TPaint`
+3. Run: `./TPaint`
+4. On first run:
+   - **Auto-downloads Java JRE** if not installed
+   - Downloads TExtract and extracts your textures
+
+#### From Source
+Prerequisites: Python 3.8+ with tkinter, Terraria (Steam)
+
+> **Note:** Java is auto-downloaded if not found - no manual installation required!
 
 #### Steps
 
@@ -82,13 +82,13 @@ A visual building tool for designing Terraria structures using actual game textu
    ```bash
    # Ubuntu/Debian
    sudo apt update
-   sudo apt install python3 python3-pip python3-tk default-jre
+   sudo apt install python3 python3-pip python3-tk
    
    # Fedora
-   sudo dnf install python3 python3-pip python3-tkinter java-latest-openjdk
+   sudo dnf install python3 python3-pip python3-tkinter
    
    # Arch
-   sudo pacman -S python python-pip tk jre-openjdk
+   sudo pacman -S python python-pip tk
    ```
 
 2. **Clone the repository:**
@@ -126,7 +126,7 @@ A visual building tool for designing Terraria structures using actual game textu
 |------------|---------|-------|
 | Python | 3.8+ from [python.org](https://www.python.org/downloads/) | `python3` via package manager |
 | Pillow & NumPy | `pip install -r requirements.txt` | `pip3 install -r requirements.txt` |
-| Java Runtime | [Adoptium](https://adoptium.net/) | `default-jre` / `jre-openjdk` |
+| Java Runtime | Auto-downloaded | Auto-downloaded |
 | Terraria | Steam or GOG | Steam (native or Proton) |
 
 ## Credits

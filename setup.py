@@ -1,8 +1,10 @@
 """
 First-Run Setup for TPaint
 Downloads and runs TExtract to extract Terraria textures.
+Auto-downloads Java JRE if not found.
 
 TExtract by Antag99 (MIT License): https://github.com/Antag99/TExtract
+Java: Eclipse Temurin (Adoptium) - https://adoptium.net/
 """
 
 import os
@@ -11,6 +13,8 @@ import subprocess
 import urllib.request
 import shutil
 import platform
+import zipfile
+import tarfile
 from pathlib import Path
 
 # Windows-only import
@@ -23,11 +27,106 @@ else:
 TEXTRACT_URL = "http://bit.ly/2ieZZcs"  # Dropbox-hosted JAR via bit.ly
 TEXTRACT_DIR = Path(__file__).parent / "tools"
 TEXTRACT_JAR = TEXTRACT_DIR / "TExtract.jar"
+
+# Adoptium (Eclipse Temurin) JRE 21 - portable versions
+# Using GitHub releases API for latest LTS
+JAVA_VERSION = "21"
+JAVA_DIR = TEXTRACT_DIR / "jre"
+
+# Direct download URLs for Adoptium JRE 21 (LTS)
+if platform.system() == 'Windows':
+    JAVA_URL = f"https://api.adoptium.net/v3/binary/latest/{JAVA_VERSION}/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk"
+    JAVA_ARCHIVE = TEXTRACT_DIR / "jre.zip"
+else:
+    JAVA_URL = f"https://api.adoptium.net/v3/binary/latest/{JAVA_VERSION}/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk"
+    JAVA_ARCHIVE = TEXTRACT_DIR / "jre.tar.gz"
 TEXTURE_DIR = Path(__file__).parent / "textures"
+
+
+def find_portable_java():
+    """Find Java in our portable JRE directory."""
+    if not JAVA_DIR.exists():
+        return None
+    
+    is_windows = platform.system() == 'Windows'
+    java_exe_name = "java.exe" if is_windows else "java"
+    
+    # Search for java executable in the JRE directory
+    for java_exe in JAVA_DIR.rglob(java_exe_name):
+        if java_exe.is_file() and "bin" in str(java_exe):
+            return str(java_exe)
+    
+    return None
+
+
+def download_java(progress_callback=None):
+    """Download portable Java JRE from Adoptium."""
+    # Check if already downloaded
+    portable_java = find_portable_java()
+    if portable_java:
+        return portable_java
+    
+    TEXTRACT_DIR.mkdir(parents=True, exist_ok=True)
+    
+    is_windows = platform.system() == 'Windows'
+    
+    print("Downloading Java JRE (Eclipse Temurin)...")
+    print("(This is required for texture extraction)")
+    print(f"Version: JRE {JAVA_VERSION}")
+    
+    try:
+        req = urllib.request.Request(JAVA_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        with urllib.request.urlopen(req) as response:
+            total_size = int(response.headers.get('Content-Length', 0))
+            downloaded = 0
+            
+            with open(JAVA_ARCHIVE, 'wb') as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    if progress_callback and total_size > 0:
+                        pct = int(downloaded * 100 / total_size)
+                        progress_callback(downloaded, total_size, f"Downloading Java: {pct}%")
+        
+        print("Download complete. Extracting...")
+        
+        # Extract the archive
+        JAVA_DIR.mkdir(parents=True, exist_ok=True)
+        
+        if is_windows:
+            with zipfile.ZipFile(JAVA_ARCHIVE, 'r') as zf:
+                zf.extractall(JAVA_DIR)
+        else:
+            with tarfile.open(JAVA_ARCHIVE, 'r:gz') as tf:
+                tf.extractall(JAVA_DIR)
+        
+        # Clean up archive
+        JAVA_ARCHIVE.unlink()
+        
+        print("Java JRE installed successfully!")
+        
+        # Find the java executable
+        return find_portable_java()
+        
+    except Exception as e:
+        print(f"Failed to download Java: {e}")
+        if JAVA_ARCHIVE.exists():
+            JAVA_ARCHIVE.unlink()
+        return None
 
 
 def find_java():
     """Find Java executable."""
+    # First check our portable JRE
+    portable_java = find_portable_java()
+    if portable_java:
+        return portable_java
+    
     # Check if java is in PATH
     java_cmd = shutil.which("java")
     if java_cmd:
@@ -265,15 +364,16 @@ def setup_textures():
     print("Checking for Java...")
     java = find_java()
     if not java:
-        print("\n[!] Java Runtime not found!")
-        print("TExtract requires Java to extract Terraria's textures.")
-        print()
-        print("Please install Java from one of these sources:")
-        print("  - https://adoptium.net/ (Recommended)")
-        print("  - https://www.oracle.com/java/technologies/downloads/")
-        print()
-        print("After installing Java, run this setup again.")
-        return False
+        print("\n[!] Java Runtime not found. Downloading portable JRE...")
+        java = download_java()
+        if not java:
+            print("\n[!] Failed to download Java automatically!")
+            print("Please install Java manually from one of these sources:")
+            print("  - https://adoptium.net/ (Recommended)")
+            print("  - https://www.oracle.com/java/technologies/downloads/")
+            print()
+            print("After installing Java, run this setup again.")
+            return False
     
     print(f"Found Java: {java}")
     print()
@@ -349,14 +449,42 @@ def setup_textures_gui():
     # Check for Java
     java = find_java()
     if not java:
-        messagebox.showerror("TPaint Setup", 
-            "Java Runtime not found!\n\n"
-            "TExtract requires Java to extract Terraria's textures.\n\n"
-            "Please install Java from:\n"
-            "https://adoptium.net/\n\n"
-            "Then restart TPaint.")
-        root.destroy()
-        return False
+        # Show downloading dialog
+        download_win = tk.Toplevel(root)
+        download_win.title("TPaint Setup")
+        download_win.geometry("400x120")
+        download_win.resizable(False, False)
+        download_win.protocol("WM_DELETE_WINDOW", lambda: None)
+        
+        download_win.update_idletasks()
+        x = (download_win.winfo_screenwidth() - 400) // 2
+        y = (download_win.winfo_screenheight() - 120) // 2
+        download_win.geometry(f"400x120+{x}+{y}")
+        
+        tk.Label(download_win, text="Downloading Java JRE...", font=("Arial", 12, "bold")).pack(pady=10)
+        java_status = tk.Label(download_win, text="This may take a moment...")
+        java_status.pack(pady=5)
+        java_progress = ttk.Progressbar(download_win, length=350, mode='determinate')
+        java_progress.pack(pady=10)
+        
+        def java_progress_callback(current, total, msg):
+            if total > 0:
+                java_progress['value'] = int(current * 100 / total)
+            java_status.config(text=msg)
+            download_win.update()
+        
+        download_win.update()
+        java = download_java(java_progress_callback)
+        download_win.destroy()
+        
+        if not java:
+            messagebox.showerror("TPaint Setup", 
+                "Failed to download Java automatically!\n\n"
+                "Please install Java manually from:\n"
+                "https://adoptium.net/\n\n"
+                "Then restart TPaint.")
+            root.destroy()
+            return False
     
     # Find Terraria
     terraria = find_terraria()

@@ -882,6 +882,9 @@ class TerrariaPaint:
             if self.selection and self._point_in_selection(r, c):
                 self._start_move(r, c)
             elif self.tool_start is None and not self.moving:
+                # Clear previous selection when starting a new one
+                self.canvas.delete('selection')
+                self.selection = None
                 self.tool_start = (r, c)
                 self.status.set("Drag to select area")
             elif not self.moving:
@@ -1493,7 +1496,7 @@ class TerrariaPaint:
     
     def _preview_move(self, row, col):
         """Preview where the selection will be moved to."""
-        if not self.moving or not self.move_start or not self.selection:
+        if not self.moving or not self.move_start or not self.selection or not self.move_data:
             return
         
         self.canvas.delete('move_preview')
@@ -1510,8 +1513,55 @@ class TerrariaPaint:
         new_r2 = sel['r2'] + dr
         new_c2 = sel['c2'] + dc
         
-        # Draw preview rectangle
         scaled_size = int(TILE_SIZE * self.zoom)
+        
+        # Draw the actual blocks being moved as a preview
+        for ri, row_data in enumerate(self.move_data):
+            for ci, cell_data in enumerate(row_data):
+                r, c = new_r1 + ri, new_c1 + ci
+                if 0 <= r < self.rows and 0 <= c < self.cols:
+                    x, y = c * scaled_size, r * scaled_size
+                    
+                    # Get wall image
+                    wall_img = None
+                    if cell_data['wall']:
+                        wall_img = self.cache.get_wall(cell_data['wall'])
+                    
+                    # Get block image
+                    block_img = None
+                    if cell_data['block']:
+                        if cell_data['block'][0] == 'block':
+                            block_img = self.cache.get_block(cell_data['block'][1], {'n': False, 's': False, 'e': False, 'w': False})
+                        elif cell_data['block'][0] == 'furn' and cell_data['block'][2] == 0 and cell_data['block'][3] == 0:
+                            block_img = self.cache.get_furniture(cell_data['block'][1])
+                    
+                    # Composite and render
+                    if wall_img or block_img:
+                        if wall_img and block_img:
+                            img = self._composite_layers(wall_img, block_img)
+                        elif wall_img:
+                            img = wall_img
+                        else:
+                            img = block_img
+                        
+                        # Make semi-transparent
+                        if img:
+                            img = img.copy()
+                            if img.mode != 'RGBA':
+                                img = img.convert('RGBA')
+                            alpha = img.split()[3]
+                            alpha = alpha.point(lambda p: int(p * 0.7))
+                            img.putalpha(alpha)
+                            
+                            if self.zoom != 1.0:
+                                new_size = (int(img.width * self.zoom), int(img.height * self.zoom))
+                                img = img.resize(new_size, Image.NEAREST)
+                            
+                            photo = ImageTk.PhotoImage(img)
+                            self.photos[('move_preview', ri, ci)] = photo
+                            self.canvas.create_image(x, y, anchor=tk.NW, image=photo, tags='move_preview')
+        
+        # Draw outline rectangle
         x1 = new_c1 * scaled_size
         y1 = new_r1 * scaled_size
         x2 = (new_c2 + 1) * scaled_size

@@ -10,8 +10,14 @@ import sys
 import subprocess
 import urllib.request
 import shutil
-import winreg
+import platform
 from pathlib import Path
+
+# Windows-only import
+if platform.system() == 'Windows':
+    import winreg
+else:
+    winreg = None
 
 
 TEXTRACT_URL = "http://bit.ly/2ieZZcs"  # Dropbox-hosted JAR via bit.ly
@@ -27,52 +33,90 @@ def find_java():
     if java_cmd:
         return java_cmd
     
-    # Check common Windows paths
-    java_paths = [
-        Path(os.environ.get("JAVA_HOME", "")) / "bin" / "java.exe",
-        Path(os.environ.get("ProgramFiles", "")) / "Java",
-        Path(os.environ.get("ProgramFiles(x86)", "")) / "Java",
-        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Eclipse Adoptium",
-    ]
+    is_windows = platform.system() == 'Windows'
+    java_exe_name = "java.exe" if is_windows else "java"
     
-    for base in java_paths:
-        if base.exists():
-            # Search for java.exe
-            for java_exe in base.rglob("java.exe"):
-                return str(java_exe)
-    
-    # Try registry
-    try:
-        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\JavaSoft\Java Runtime Environment") as key:
-            version = winreg.QueryValueEx(key, "CurrentVersion")[0]
-            with winreg.OpenKey(key, version) as subkey:
-                java_home = winreg.QueryValueEx(subkey, "JavaHome")[0]
-                java_exe = Path(java_home) / "bin" / "java.exe"
-                if java_exe.exists():
+    if is_windows:
+        # Check common Windows paths
+        java_paths = [
+            Path(os.environ.get("JAVA_HOME", "")) / "bin" / java_exe_name,
+            Path(os.environ.get("ProgramFiles", "")) / "Java",
+            Path(os.environ.get("ProgramFiles(x86)", "")) / "Java",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Eclipse Adoptium",
+        ]
+        
+        for base in java_paths:
+            if base.exists():
+                for java_exe in base.rglob(java_exe_name):
                     return str(java_exe)
-    except:
-        pass
+        
+        # Try registry
+        try:
+            if winreg:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\JavaSoft\Java Runtime Environment") as key:
+                    version = winreg.QueryValueEx(key, "CurrentVersion")[0]
+                    with winreg.OpenKey(key, version) as subkey:
+                        java_home = winreg.QueryValueEx(subkey, "JavaHome")[0]
+                        java_exe = Path(java_home) / "bin" / java_exe_name
+                        if java_exe.exists():
+                            return str(java_exe)
+        except:
+            pass
+    else:
+        # Linux/macOS paths
+        java_paths = [
+            Path(os.environ.get("JAVA_HOME", "")) / "bin" / "java",
+            Path("/usr/bin/java"),
+            Path("/usr/lib/jvm"),
+            Path("/opt/java"),
+            Path.home() / ".sdkman" / "candidates" / "java",
+        ]
+        
+        for base in java_paths:
+            if base.is_file():
+                return str(base)
+            if base.is_dir():
+                for java_exe in base.rglob("java"):
+                    if java_exe.is_file() and "bin" in str(java_exe):
+                        return str(java_exe)
     
     return None
 
 
 def find_terraria():
     """Find Terraria installation."""
-    steam_paths = [
-        Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Steam",
-        Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Steam",
-        Path("D:/SteamLibrary"),
-        Path("E:/SteamLibrary"),
-        Path("F:/SteamLibrary"),
-    ]
+    is_windows = platform.system() == 'Windows'
     
-    # Try registry for Steam path
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
-            steam_path = Path(winreg.QueryValueEx(key, "SteamPath")[0])
-            steam_paths.insert(0, steam_path)
-    except:
-        pass
+    if is_windows:
+        steam_paths = [
+            Path(os.environ.get("ProgramFiles(x86)", "C:/Program Files (x86)")) / "Steam",
+            Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "Steam",
+            Path("D:/SteamLibrary"),
+            Path("E:/SteamLibrary"),
+            Path("F:/SteamLibrary"),
+        ]
+        
+        # Try registry for Steam path
+        try:
+            if winreg:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+                    steam_path = Path(winreg.QueryValueEx(key, "SteamPath")[0])
+                    steam_paths.insert(0, steam_path)
+        except:
+            pass
+    else:
+        # Linux/macOS Steam paths
+        home = Path.home()
+        steam_paths = [
+            home / ".steam" / "steam",
+            home / ".steam" / "debian-installation",
+            home / ".local" / "share" / "Steam",
+            Path("/opt/steam"),
+            # Flatpak Steam
+            home / ".var" / "app" / "com.valvesoftware.Steam" / ".steam" / "steam",
+            # macOS
+            home / "Library" / "Application Support" / "Steam",
+        ]
     
     for steam in steam_paths:
         terraria = steam / "steamapps/common/Terraria"
@@ -93,10 +137,11 @@ def find_terraria():
             except:
                 pass
     
-    # GOG
-    gog_path = Path(os.environ.get("ProgramFiles(x86)", "")) / "GOG Galaxy/Games/Terraria"
-    if gog_path.exists():
-        return gog_path
+    # GOG (Windows only)
+    if is_windows:
+        gog_path = Path(os.environ.get("ProgramFiles(x86)", "")) / "GOG Galaxy/Games/Terraria"
+        if gog_path.exists():
+            return gog_path
     
     return None
 

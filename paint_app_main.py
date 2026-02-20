@@ -326,66 +326,79 @@ class TerrariaPaint:
         self.icons = {}
         icons_dir = Path(__file__).parent / "icons"
         
-        icon_names = ['block', 'wall', 'eraser', 'fill', 'line', 'circle', 'select',
-                      'brush_1', 'brush_2', 'brush_3', 'brush_5', 'brush_10']
+        # Tool names that match icon filenames directly
+        tool_icons = ['block', 'wall', 'fill', 'line', 'circle', 'select', 'erase']
         
-        for name in icon_names:
-            path = icons_dir / f"{name}.png"
+        for tool_name in tool_icons:
+            path = icons_dir / f"{tool_name}.png"
             if path.exists():
                 img = Image.open(path).convert('RGBA')
-                # Scale up for better visibility
-                img = img.resize((32, 32), Image.NEAREST)
-                self.icons[name] = ImageTk.PhotoImage(img)
+                # Resize if needed
+                if img.width != 32 or img.height != 32:
+                    img = img.resize((32, 32), Image.NEAREST)
+                self.icons[tool_name] = ImageTk.PhotoImage(img)
     
     def _build_ui(self):
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Modern dark theme colors
-        bg_dark = '#1a1b26'
-        bg_mid = '#24283b'
-        bg_light = '#414868'
-        accent = '#7aa2f7'
-        accent_dim = '#3d59a1'
-        text = '#c0caf5'
-        text_dim = '#565f89'
+        # Modern dark theme colors - sleeker palette
+        bg_dark = '#0d1117'     # GitHub dark
+        bg_mid = '#161b22'       # Card background
+        bg_light = '#21262d'     # Elevated elements
+        bg_hover = '#30363d'     # Hover state
+        accent = '#58a6ff'       # Primary accent (blue)
+        accent_dim = '#388bfd'   # Accent hover
+        accent_glow = '#1f6feb'  # Selection glow
+        text = '#e6edf3'         # Primary text
+        text_dim = '#7d8590'     # Secondary text
+        border = '#30363d'       # Borders
+        success = '#3fb950'      # Green accent
         
-        # Configure styles
+        # Configure styles with rounded feel
         style.configure('TFrame', background=bg_dark)
         style.configure('TLabel', background=bg_dark, foreground=text, font=('Segoe UI', 9))
-        style.configure('TLabelframe', background=bg_dark, foreground=text)
-        style.configure('TLabelframe.Label', background=bg_dark, foreground=accent, font=('Segoe UI', 9, 'bold'))
-        style.configure('TNotebook', background=bg_dark, borderwidth=0)
-        style.configure('TNotebook.Tab', background=bg_mid, foreground=text, padding=[12, 6], font=('Segoe UI', 9))
-        style.map('TNotebook.Tab', background=[('selected', accent_dim)], foreground=[('selected', '#ffffff')])
-        style.configure('TButton', background=bg_light, foreground=text, font=('Segoe UI', 9), padding=[8, 4])
-        style.map('TButton', background=[('active', accent)])
+        style.configure('TLabelframe', background=bg_mid, foreground=text, borderwidth=2, relief='flat')
+        style.configure('TLabelframe.Label', background=bg_mid, foreground=accent, font=('Segoe UI', 10, 'bold'))
+        style.configure('TNotebook', background=bg_dark, borderwidth=0, padding=4)
+        style.configure('TNotebook.Tab', background=bg_light, foreground=text_dim, padding=[16, 8], font=('Segoe UI', 9, 'bold'))
+        style.map('TNotebook.Tab', background=[('selected', bg_mid)], foreground=[('selected', text)])
+        style.configure('TButton', background=bg_light, foreground=text, font=('Segoe UI', 9, 'bold'), padding=[12, 6], borderwidth=0)
+        style.map('TButton', background=[('active', accent_dim), ('pressed', accent_glow)])
         style.configure('TRadiobutton', background=bg_dark, foreground=text, font=('Segoe UI', 9))
         style.map('TRadiobutton', background=[('active', bg_dark)])
-        style.configure('TEntry', fieldbackground=bg_mid, foreground=text, insertcolor=text)
-        style.configure('TSpinbox', fieldbackground=bg_mid, foreground=text, arrowcolor=text)
-        style.configure('TScrollbar', background=bg_mid, troughcolor=bg_dark, arrowcolor=text)
-        style.map('TScrollbar', background=[('active', bg_light)])
+        style.configure('TEntry', fieldbackground=bg_light, foreground=text, insertcolor=text, borderwidth=0, padding=6)
+        style.configure('TSpinbox', fieldbackground=bg_light, foreground=text, arrowcolor=text, borderwidth=0, padding=4)
+        style.configure('TScrollbar', background=bg_light, troughcolor=bg_dark, arrowcolor=text, borderwidth=0)
+        style.map('TScrollbar', background=[('active', bg_hover)])
+        style.configure('TCheckbutton', background=bg_dark, foreground=text, font=('Segoe UI', 9))
+        style.map('TCheckbutton', background=[('active', bg_dark)])
         
         self.root.configure(bg=bg_dark)
         self.colors = {'bg_dark': bg_dark, 'bg_mid': bg_mid, 'bg_light': bg_light, 
-                       'accent': accent, 'text': text, 'text_dim': text_dim}
+                       'bg_hover': bg_hover, 'accent': accent, 'accent_dim': accent_dim,
+                       'text': text, 'text_dim': text_dim, 'border': border}
         
         main = ttk.Frame(self.root)
-        main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        main.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
         # Left panel
-        left = ttk.Frame(main, width=300)
-        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0,8))
+        left = ttk.Frame(main, width=320)
+        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0,12))
         left.pack_propagate(False)
         
-        # Tools - Icon-based toolbar
-        tools = ttk.LabelFrame(left, text="Tools")
-        tools.pack(fill=tk.X, pady=(0,8))
+        # Tools - Modern card-style toolbar
+        tools_card = tk.Frame(left, bg=bg_mid, highlightbackground=border, highlightthickness=1)
+        tools_card.pack(fill=tk.X, pady=(0,12))
         
-        # Drawing tools row
-        tool_row1 = tk.Frame(tools, bg=bg_dark)
-        tool_row1.pack(fill=tk.X, pady=(8,4), padx=8)
+        # Tools header
+        tools_header = tk.Frame(tools_card, bg=bg_mid)
+        tools_header.pack(fill=tk.X, padx=12, pady=(12,8))
+        tk.Label(tools_header, text="Tools", bg=bg_mid, fg=accent, font=('Segoe UI', 11, 'bold')).pack(side=tk.LEFT)
+        
+        # Drawing tools row with modern buttons
+        tool_row1 = tk.Frame(tools_card, bg=bg_mid)
+        tool_row1.pack(fill=tk.X, pady=(0,12), padx=12)
         
         self.tool_var = tk.StringVar(value='block')
         self.tool_buttons = {}
@@ -393,7 +406,7 @@ class TerrariaPaint:
         tool_defs = [
             ('block', 'Block [B]', 'block'),
             ('wall', 'Wall [W]', 'wall'),
-            ('eraser', 'Eraser [E]', 'erase'),
+            ('erase', 'Eraser [E]', 'erase'),
             ('fill', 'Fill [F]', 'fill'),
             ('line', 'Line [L]', 'line'),
             ('circle', 'Circle [O]', 'circle'),
@@ -401,71 +414,102 @@ class TerrariaPaint:
         ]
         
         for icon_name, tooltip, tool_val in tool_defs:
-            btn = tk.Button(tool_row1, 
+            # Modern rounded-feel button with padding
+            btn_frame = tk.Frame(tool_row1, bg=bg_mid)
+            btn_frame.pack(side=tk.LEFT, padx=3)
+            
+            btn = tk.Button(btn_frame, 
                            image=self.icons.get(icon_name),
-                           bg=bg_mid, activebackground=accent,
-                           relief='flat', bd=0, padx=4, pady=4,
+                           bg=bg_light, activebackground=accent_dim,
+                           relief='flat', bd=0, 
+                           padx=8, pady=8,
+                           cursor='hand2',
                            command=lambda t=tool_val: self._set_tool(t))
-            btn.pack(side=tk.LEFT, padx=2)
+            btn.pack(padx=1, pady=1)
+            
+            # Hover effects
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg=bg_hover))
+            btn.bind('<Leave>', lambda e, b=btn, t=tool_val: b.config(bg=accent if t == self.tool else bg_light))
+            
             self.tool_buttons[tool_val] = btn
-            # Tooltip
             self._create_tooltip(btn, tooltip)
         
-        # Layer selection (for fill, line, circle)
-        layer_row = tk.Frame(tools, bg=bg_dark)
-        layer_row.pack(fill=tk.X, pady=4, padx=8)
+        # Layer selection (modern toggle buttons)
+        layer_row = tk.Frame(tools_card, bg=bg_mid)
+        layer_row.pack(fill=tk.X, pady=(0,8), padx=12)
         
-        tk.Label(layer_row, text="Layer:", bg=bg_dark, fg=text, font=('Segoe UI', 9)).pack(side=tk.LEFT)
+        tk.Label(layer_row, text="Layer:", bg=bg_mid, fg=text_dim, font=('Segoe UI', 9)).pack(side=tk.LEFT, padx=(0,8))
         self.layer_var = tk.StringVar(value='block')
         for txt, val in [("Block", "block"), ("Wall", "wall")]:
             rb = tk.Radiobutton(layer_row, text=txt, variable=self.layer_var, value=val,
-                               bg=bg_dark, fg=text, selectcolor=bg_mid, activebackground=bg_dark,
+                               bg=bg_light, fg=text, selectcolor=accent_glow, activebackground=bg_hover,
+                               indicatoron=0, padx=12, pady=4, relief='flat', cursor='hand2',
                                command=self._layer_changed)
-            rb.pack(side=tk.LEFT, padx=4)
+            rb.pack(side=tk.LEFT, padx=2)
         
         # Shape options row
-        shape_row = tk.Frame(tools, bg=bg_dark)
-        shape_row.pack(fill=tk.X, pady=(0,4), padx=8)
+        shape_row = tk.Frame(tools_card, bg=bg_mid)
+        shape_row.pack(fill=tk.X, pady=(0,12), padx=12)
         
         self.fill_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(shape_row, text="Fill Shapes", variable=self.fill_var,
-                      bg=bg_dark, fg=text, selectcolor=bg_mid, activebackground=bg_dark,
-                      command=lambda: setattr(self, 'fill_shape', self.fill_var.get())).pack(side=tk.LEFT)
+        fill_cb = tk.Checkbutton(shape_row, text="Fill Shapes", variable=self.fill_var,
+                      bg=bg_mid, fg=text, selectcolor=accent_glow, activebackground=bg_mid,
+                      cursor='hand2',
+                      command=lambda: setattr(self, 'fill_shape', self.fill_var.get()))
+        fill_cb.pack(side=tk.LEFT)
         
-        # Brush sizes with icons
-        brush_frame = ttk.LabelFrame(left, text="Brush Size")
-        brush_frame.pack(fill=tk.X, pady=(0,8))
+        # Brush size card
+        brush_card = tk.Frame(left, bg=bg_mid, highlightbackground=border, highlightthickness=1)
+        brush_card.pack(fill=tk.X, pady=(0,12))
         
-        brush_row = tk.Frame(brush_frame, bg=bg_dark)
-        brush_row.pack(fill=tk.X, pady=6, padx=8)
+        brush_header = tk.Frame(brush_card, bg=bg_mid)
+        brush_header.pack(fill=tk.X, padx=12, pady=(12,6))
+        tk.Label(brush_header, text="Brush Size", bg=bg_mid, fg=accent, font=('Segoe UI', 11, 'bold')).pack(side=tk.LEFT)
         
         self.brush_var = tk.IntVar(value=1)
-        self.brush_buttons = {}
+        self.brush_label = tk.Label(brush_header, text="1x1", bg=bg_mid, fg=text, 
+                                    font=('Segoe UI', 10, 'bold'))
+        self.brush_label.pack(side=tk.RIGHT)
         
-        for size in [1, 2, 3, 5, 10]:
-            icon_key = f'brush_{size}'
-            btn = tk.Button(brush_row,
-                           image=self.icons.get(icon_key),
-                           bg=bg_mid, activebackground=accent,
-                           relief='flat', bd=0, padx=2, pady=2,
-                           command=lambda s=size: self._set_brush(s))
-            btn.pack(side=tk.LEFT, padx=2)
-            self.brush_buttons[size] = btn
-            self._create_tooltip(btn, f"{size}x{size} Brush [{[1,2,3,5,10].index(size)+1}]")
+        brush_row = tk.Frame(brush_card, bg=bg_mid)
+        brush_row.pack(fill=tk.X, pady=(0,12), padx=12)
         
-        # Grid Size - compact row
-        size_frame = ttk.LabelFrame(left, text="Grid Size")
-        size_frame.pack(fill=tk.X, pady=(0,8))
+        # Modern slider
+        self.brush_slider = tk.Scale(brush_row, from_=1, to=20, orient=tk.HORIZONTAL,
+                                     variable=self.brush_var, command=self._brush_slider_changed,
+                                     bg=bg_mid, fg=text, troughcolor=bg_light, 
+                                     activebackground=accent, highlightthickness=0,
+                                     sliderrelief='flat', length=260, showvalue=0,
+                                     sliderlength=20)
+        self.brush_slider.pack(fill=tk.X)
         
-        size_row = ttk.Frame(size_frame)
-        size_row.pack(fill=tk.X, pady=6, padx=8)
-        ttk.Label(size_row, text="W:").pack(side=tk.LEFT)
+        # Grid Size card
+        size_card = tk.Frame(left, bg=bg_mid, highlightbackground=border, highlightthickness=1)
+        size_card.pack(fill=tk.X, pady=(0,12))
+        
+        size_header = tk.Frame(size_card, bg=bg_mid)
+        size_header.pack(fill=tk.X, padx=12, pady=(12,8))
+        tk.Label(size_header, text="Grid Size", bg=bg_mid, fg=accent, font=('Segoe UI', 11, 'bold')).pack(side=tk.LEFT)
+        
+        size_frame = tk.Frame(size_card, bg=bg_mid)
+        size_frame.pack(fill=tk.X)
+        
+        size_row = tk.Frame(size_frame, bg=bg_mid)
+        size_row.pack(fill=tk.X, pady=(0,12), padx=12)
+        tk.Label(size_row, text="W:", bg=bg_mid, fg=text_dim, font=('Segoe UI', 9)).pack(side=tk.LEFT)
         self.width_var = tk.StringVar(value=str(self.cols))
-        ttk.Spinbox(size_row, from_=1, to=10000, width=6, textvariable=self.width_var).pack(side=tk.LEFT, padx=(2,12))
-        ttk.Label(size_row, text="H:").pack(side=tk.LEFT)
+        w_entry = tk.Entry(size_row, textvariable=self.width_var, width=6, bg=bg_light, fg=text,
+                          insertbackground=text, relief='flat', font=('Segoe UI', 10))
+        w_entry.pack(side=tk.LEFT, padx=(4,16))
+        tk.Label(size_row, text="H:", bg=bg_mid, fg=text_dim, font=('Segoe UI', 9)).pack(side=tk.LEFT)
         self.height_var = tk.StringVar(value=str(self.rows))
-        ttk.Spinbox(size_row, from_=1, to=10000, width=6, textvariable=self.height_var).pack(side=tk.LEFT, padx=(2,12))
-        ttk.Button(size_row, text="Apply", command=self._resize_grid).pack(side=tk.LEFT)
+        h_entry = tk.Entry(size_row, textvariable=self.height_var, width=6, bg=bg_light, fg=text,
+                          insertbackground=text, relief='flat', font=('Segoe UI', 10))
+        h_entry.pack(side=tk.LEFT, padx=(4,16))
+        apply_btn = tk.Button(size_row, text="Apply", command=self._resize_grid,
+                             bg=accent, fg='#ffffff', activebackground=accent_dim,
+                             relief='flat', padx=12, pady=2, cursor='hand2', font=('Segoe UI', 9, 'bold'))
+        apply_btn.pack(side=tk.LEFT)
         
         # Notebook tabs
         notebook = ttk.Notebook(left)
@@ -506,20 +550,30 @@ class TerrariaPaint:
         self.wall_list = self._create_list(wall_frame)
         self._populate_walls()
         
-        # Action buttons
-        actions = ttk.Frame(left)
-        actions.pack(fill=tk.X)
-        ttk.Button(actions, text="Clear [C]", command=self._clear).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0,4))
-        ttk.Button(actions, text="Save [S]", command=self._save).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(4,0))
+        # Action buttons - modern card style
+        actions = tk.Frame(left, bg=bg_dark)
+        actions.pack(fill=tk.X, pady=(8,0))
         
-        # Canvas area
-        canvas_frame = ttk.Frame(main)
+        clear_btn = tk.Button(actions, text="Clear [C]", command=self._clear,
+                             bg=bg_light, fg=text, activebackground=bg_hover,
+                             relief='flat', padx=16, pady=8, cursor='hand2',
+                             font=('Segoe UI', 9, 'bold'))
+        clear_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0,6))
+        
+        save_btn = tk.Button(actions, text="Save [S]", command=self._save,
+                            bg=accent, fg='#ffffff', activebackground=accent_dim,
+                            relief='flat', padx=16, pady=8, cursor='hand2',
+                            font=('Segoe UI', 9, 'bold'))
+        save_btn.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        
+        # Canvas area with subtle border
+        canvas_frame = tk.Frame(main, bg=border, highlightbackground=border, highlightthickness=1)
         canvas_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         xscroll = ttk.Scrollbar(canvas_frame, orient=tk.HORIZONTAL)
         yscroll = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL)
         
-        self.canvas = tk.Canvas(canvas_frame, bg='#0f0f14', highlightthickness=0,
+        self.canvas = tk.Canvas(canvas_frame, bg='#010409', highlightthickness=0,
                                xscrollcommand=xscroll.set, yscrollcommand=yscroll.set,
                                scrollregion=(0, 0, self.cols*TILE_SIZE, self.rows*TILE_SIZE))
         
@@ -605,14 +659,51 @@ class TerrariaPaint:
             row = tk.Frame(inner, bg=bg_mid)
             row.pack(fill=tk.X, pady=1, padx=4)
             
-            # Color swatch with padding
-            color = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-            swatch = tk.Frame(row, bg=color, width=20, height=24)
-            swatch.pack(side=tk.LEFT, padx=(0,6))
-            swatch.pack_propagate(False)
+            # Texture preview (24x24)
+            preview_frame = tk.Frame(row, bg=bg_mid, width=28, height=28)
+            preview_frame.pack(side=tk.LEFT, padx=(0,6))
+            preview_frame.pack_propagate(False)
+            
+            # Try to get actual texture
+            preview_img = None
+            try:
+                if item_type == 'wall':
+                    tile = self.cache.get_wall(tid)
+                elif item_type == 'furniture':
+                    tile = self.cache.get_furniture(tid)
+                else:
+                    # For blocks, get center tile (all neighbors)
+                    tile = self.cache.get_block(tid, {'n': True, 'e': True, 's': True, 'w': True})
+                
+                if tile:
+                    # Scale to 24x24
+                    tw, th = tile.size
+                    scale = min(24 / tw, 24 / th)
+                    new_w = max(1, int(tw * scale))
+                    new_h = max(1, int(th * scale))
+                    scaled = tile.resize((new_w, new_h), Image.NEAREST)
+                    
+                    # Center on 24x24 canvas
+                    preview = Image.new('RGBA', (24, 24), (0, 0, 0, 0))
+                    x = (24 - new_w) // 2
+                    y = (24 - new_h) // 2
+                    preview.paste(scaled, (x, y), scaled)
+                    preview_img = ImageTk.PhotoImage(preview)
+            except:
+                pass
+            
+            if preview_img:
+                lst['photos'].append(preview_img)  # Keep reference
+                lbl = tk.Label(preview_frame, image=preview_img, bg=bg_mid)
+                lbl.pack(expand=True)
+            else:
+                # Fallback to color swatch
+                color = f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+                swatch = tk.Frame(preview_frame, bg=color, width=20, height=20)
+                swatch.pack(expand=True, pady=2)
             
             # Name button
-            display = f"{tid}: {name[:24]}"
+            display = f"{tid}: {name[:22]}"
             btn = tk.Button(row, text=display, anchor='w',
                            bg=bg_mid, fg=text, activebackground=accent, activeforeground='#ffffff',
                            bd=0, padx=8, pady=4, font=('Segoe UI', 9),
@@ -628,7 +719,7 @@ class TerrariaPaint:
             
             # Bind mousewheel
             btn.bind('<MouseWheel>', lambda e, c=lst['canvas']: c.yview_scroll(-1*(e.delta//120), 'units'))
-            swatch.bind('<MouseWheel>', lambda e, c=lst['canvas']: c.yview_scroll(-1*(e.delta//120), 'units'))
+            preview_frame.bind('<MouseWheel>', lambda e, c=lst['canvas']: c.yview_scroll(-1*(e.delta//120), 'units'))
             row.bind('<MouseWheel>', lambda e, c=lst['canvas']: c.yview_scroll(-1*(e.delta//120), 'units'))
         
         inner.update_idletasks()
@@ -669,8 +760,9 @@ class TerrariaPaint:
             tooltip = tk.Toplevel(widget)
             tooltip.wm_overrideredirect(True)
             tooltip.wm_geometry(f"+{e.x_root+10}+{e.y_root+10}")
-            tk.Label(tooltip, text=text, bg='#1a1b26', fg='#c0caf5', 
-                    font=('Segoe UI', 9), padx=6, pady=3, relief='solid', bd=1).pack()
+            tk.Label(tooltip, text=text, bg='#161b22', fg='#e6edf3', 
+                    font=('Segoe UI', 9), padx=8, pady=4, relief='flat', bd=0,
+                    highlightbackground='#30363d', highlightthickness=1).pack()
             widget._tooltip = tooltip
         def hide(e):
             if hasattr(widget, '_tooltip'):
@@ -684,18 +776,13 @@ class TerrariaPaint:
     
     def _update_tool_buttons(self):
         """Update tool button appearances to show selection."""
-        bg_mid = self.colors['bg_mid']
+        bg_light = self.colors['bg_light']
         accent = self.colors['accent']
         for tool, btn in self.tool_buttons.items():
             if tool == self.tool:
                 btn.config(bg=accent)
             else:
-                btn.config(bg=bg_mid)
-        for size, btn in self.brush_buttons.items():
-            if size == self.brush:
-                btn.config(bg=accent)
-            else:
-                btn.config(bg=bg_mid)
+                btn.config(bg=bg_light)
     
     def _bind_keys(self):
         self.root.bind('b', lambda e: self._set_tool('block'))
@@ -780,6 +867,13 @@ class TerrariaPaint:
     def _brush_changed(self):
         self.brush = self.brush_var.get()
         self._update_tool_buttons()
+    
+    def _brush_slider_changed(self, value):
+        """Handle brush size slider change."""
+        size = int(float(value))
+        self.brush = size
+        self.brush_label.config(text=f"{size}x{size}")
+        self.status.set(f"Brush: {size}x{size}")
     
     def _resize_grid(self):
         """Resize the grid, preserving existing content."""

@@ -303,6 +303,11 @@ class TerrariaPaint:
         self.selection = None  # {'r1', 'c1', 'r2', 'c2'} or None
         self.clipboard = None  # Grid data for paste
         
+        # Move tool state
+        self.moving = False  # Whether currently moving a selection
+        self.move_start = None  # (row, col) where move started
+        self.move_data = None  # Grid data being moved
+        
         # Load tool icons
         self._load_icons()
         
@@ -714,11 +719,25 @@ class TerrariaPaint:
     
     def _cancel_tool(self):
         """Cancel current tool operation."""
+        # If moving, restore the data to original position
+        if self.moving and self.move_data and self.selection:
+            sel = self.selection
+            for ri, row_data in enumerate(self.move_data):
+                for ci, cell_data in enumerate(row_data):
+                    r, c = sel['r1'] + ri, sel['c1'] + ci
+                    if 0 <= r < self.rows and 0 <= c < self.cols:
+                        self.grid[r][c] = cell_data.copy()
+                        self._render_cell(r, c)
+        
         self.tool_start = None
         self.tool_preview = []
         self.selection = None
+        self.moving = False
+        self.move_start = None
+        self.move_data = None
         self.canvas.delete('tool_preview')
         self.canvas.delete('selection')
+        self.canvas.delete('move_preview')
         self.status.set("Cancelled")
     
     def _set_tool(self, tool):
@@ -859,10 +878,13 @@ class TerrariaPaint:
             else:
                 self._complete_shape(r, c)
         elif self.tool == 'select':
-            if self.tool_start is None:
+            # Check if clicking inside existing selection to move it
+            if self.selection and self._point_in_selection(r, c):
+                self._start_move(r, c)
+            elif self.tool_start is None and not self.moving:
                 self.tool_start = (r, c)
                 self.status.set("Drag to select area")
-            else:
+            elif not self.moving:
                 self._complete_selection(r, c)
     
     def _drag(self, e):
@@ -873,6 +895,8 @@ class TerrariaPaint:
         if self.tool in ('block', 'wall', 'erase'):
             self._paint(r, c)
             self._draw_cursor(r, c)
+        elif self.tool == 'select' and self.moving:
+            self._preview_move(r, c)
         elif self.tool in ('line', 'circle', 'select') and self.tool_start:
             self._preview_shape(r, c)
     
@@ -884,6 +908,8 @@ class TerrariaPaint:
         
         if self.tool in ('line', 'circle') and self.tool_start:
             self._complete_shape(r, c)
+        elif self.tool == 'select' and self.moving:
+            self._complete_move(r, c)
         elif self.tool == 'select' and self.tool_start:
             self._complete_selection(r, c)
     
@@ -1360,7 +1386,7 @@ class TerrariaPaint:
         
         width = c2 - c1 + 1
         height = r2 - r1 + 1
-        self.status.set(f"Selected {width}x{height} area (Ctrl+C to copy, Del to delete)")
+        self.status.set(f"Selected {width}x{height} area (Drag inside to move, Ctrl+C/V, Del)")
     
     def _copy_selection(self):
         """Copy selected area to clipboard."""
@@ -1432,6 +1458,129 @@ class TerrariaPaint:
         self.canvas.delete('selection')
         self.selection = None
         self.status.set(f"Deleted selection")
+    
+    def _point_in_selection(self, row, col):
+        """Check if a point is inside the current selection."""
+        if not self.selection:
+            return False
+        sel = self.selection
+        return sel['r1'] <= row <= sel['r2'] and sel['c1'] <= col <= sel['c2']
+    
+    def _start_move(self, row, col):
+        """Start moving the selected area."""
+        if not self.selection:
+            return
+        
+        sel = self.selection
+        self.moving = True
+        self.move_start = (row, col)
+        
+        # Copy the selected data
+        self.move_data = []
+        for r in range(sel['r1'], sel['r2'] + 1):
+            row_data = []
+            for c in range(sel['c1'], sel['c2'] + 1):
+                row_data.append(self.grid[r][c].copy())
+            self.move_data.append(row_data)
+        
+        # Clear the original area
+        for r in range(sel['r1'], sel['r2'] + 1):
+            for c in range(sel['c1'], sel['c2'] + 1):
+                self.grid[r][c] = {'wall': None, 'block': None}
+                self._render_cell(r, c)
+        
+        self.status.set("Drag to move selection")
+    
+    def _preview_move(self, row, col):
+        """Preview where the selection will be moved to."""
+        if not self.moving or not self.move_start or not self.selection:
+            return
+        
+        self.canvas.delete('move_preview')
+        self.canvas.delete('selection')
+        
+        # Calculate offset
+        start_r, start_c = self.move_start
+        dr = row - start_r
+        dc = col - start_c
+        
+        sel = self.selection
+        new_r1 = sel['r1'] + dr
+        new_c1 = sel['c1'] + dc
+        new_r2 = sel['r2'] + dr
+        new_c2 = sel['c2'] + dc
+        
+        # Draw preview rectangle
+        scaled_size = int(TILE_SIZE * self.zoom)
+        x1 = new_c1 * scaled_size
+        y1 = new_r1 * scaled_size
+        x2 = (new_c2 + 1) * scaled_size
+        y2 = (new_r2 + 1) * scaled_size
+        
+        self.canvas.create_rectangle(x1, y1, x2, y2,
+                                     outline='#f7768e', width=2,
+                                     dash=(4, 4), tags='move_preview')
+    
+    def _complete_move(self, row, col):
+        """Complete moving the selection."""
+        if not self.moving or not self.move_start or not self.selection or not self.move_data:
+            self.moving = False
+            return
+        
+        # Calculate offset
+        start_r, start_c = self.move_start
+        dr = row - start_r
+        dc = col - start_c
+        
+        sel = self.selection
+        new_r1 = sel['r1'] + dr
+        new_c1 = sel['c1'] + dc
+        
+        # Place the data at new position
+        affected = set()
+        for ri, row_data in enumerate(self.move_data):
+            for ci, cell_data in enumerate(row_data):
+                r, c = new_r1 + ri, new_c1 + ci
+                if 0 <= r < self.rows and 0 <= c < self.cols:
+                    self.grid[r][c] = cell_data.copy()
+                    affected.add((r, c))
+        
+        # Re-render affected cells and neighbors
+        to_render = set()
+        for r, c in affected:
+            for ddr in range(-1, 2):
+                for ddc in range(-1, 2):
+                    nr, nc = r + ddr, c + ddc
+                    if 0 <= nr < self.rows and 0 <= nc < self.cols:
+                        to_render.add((nr, nc))
+        
+        for r, c in to_render:
+            self._render_cell(r, c)
+        
+        # Update selection to new position
+        self.selection = {
+            'r1': new_r1, 'c1': new_c1,
+            'r2': new_r1 + len(self.move_data) - 1,
+            'c2': new_c1 + len(self.move_data[0]) - 1
+        }
+        
+        # Draw new selection rectangle
+        self.canvas.delete('move_preview')
+        scaled_size = int(TILE_SIZE * self.zoom)
+        x1 = self.selection['c1'] * scaled_size
+        y1 = self.selection['r1'] * scaled_size
+        x2 = (self.selection['c2'] + 1) * scaled_size
+        y2 = (self.selection['r2'] + 1) * scaled_size
+        self.canvas.create_rectangle(x1, y1, x2, y2,
+                                     outline='#7aa2f7', width=2,
+                                     dash=(4, 4), tags='selection')
+        
+        # Reset move state
+        self.moving = False
+        self.move_start = None
+        self.move_data = None
+        
+        self.status.set(f"Moved selection by ({dc}, {dr})")
     
     def _get_neighbors(self, row, col, layer):
         """Get neighbors for auto-tiling. layer is 'block' or 'wall'."""

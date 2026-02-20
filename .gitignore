@@ -41,6 +41,7 @@ texture_extractor.py
 
 # Textures - auto-extracted from user's Terraria install
 textures/
+textures.zip
 
 # Tools - downloaded on first run
 tools/

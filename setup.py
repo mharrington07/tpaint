@@ -42,6 +42,12 @@ else:
     JAVA_ARCHIVE = TEXTRACT_DIR / "jre.tar.gz"
 TEXTURE_DIR = Path(__file__).parent / "textures"
 
+# Pre-extracted texture pack for users without Terraria
+# Hosted on GitHub releases - update version when textures change
+TEXTURES_VERSION = "v1.0"
+TEXTURES_URL = f"https://github.com/mharrington07/tpaint/releases/download/textures-{TEXTURES_VERSION}/textures.zip"
+TEXTURES_ARCHIVE = TEXTRACT_DIR / "textures.zip"
+
 
 def find_portable_java():
     """Find Java in our portable JRE directory."""
@@ -269,6 +275,64 @@ def download_textract():
         return False
 
 
+def download_texture_pack(progress_callback=None):
+    """Download pre-extracted texture pack from GitHub releases."""
+    TEXTRACT_DIR.mkdir(parents=True, exist_ok=True)
+    TEXTURE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    print("Downloading texture pack...")
+    print("(Pre-extracted Terraria textures for users without the game)")
+    print(f"URL: {TEXTURES_URL}")
+    
+    try:
+        req = urllib.request.Request(TEXTURES_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        
+        with urllib.request.urlopen(req) as response:
+            total_size = int(response.headers.get('Content-Length', 0))
+            downloaded = 0
+            
+            with open(TEXTURES_ARCHIVE, 'wb') as f:
+                while True:
+                    chunk = response.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    
+                    if progress_callback and total_size > 0:
+                        pct = int(downloaded * 100 / total_size)
+                        progress_callback(downloaded, total_size, f"Downloading textures: {pct}%")
+        
+        print("Download complete. Extracting...")
+        
+        if progress_callback:
+            progress_callback(0, 1, "Extracting textures...")
+        
+        # Extract to textures folder
+        with zipfile.ZipFile(TEXTURES_ARCHIVE, 'r') as zf:
+            zf.extractall(TEXTURE_DIR)
+        
+        # Clean up archive
+        TEXTURES_ARCHIVE.unlink()
+        
+        # Count extracted files
+        tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
+        walls = list(TEXTURE_DIR.glob("Wall_*.png"))
+        
+        print(f"Extracted {len(tiles)} tiles and {len(walls)} walls")
+        
+        if progress_callback:
+            progress_callback(1, 1, "Complete!")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Failed to download texture pack: {e}")
+        if TEXTURES_ARCHIVE.exists():
+            TEXTURES_ARCHIVE.unlink()
+        return False
+
+
 def run_textract(terraria_path, output_dir, progress_callback=None):
     """Run TExtract in command-line mode."""
     java = find_java()
@@ -360,7 +424,46 @@ def setup_textures():
         print(f"Textures already present: {len(existing_tiles)} tiles, {len(existing_walls)} walls")
         return True
     
-    # Check for Java
+    # Find Terraria first (before checking Java, since texture download doesn't need Java)
+    print("Searching for Terraria...")
+    terraria = find_terraria()
+    
+    if not terraria:
+        print("\nCould not find Terraria installation.")
+        print()
+        print("Options:")
+        print("  1. Enter Terraria path manually")
+        print("  2. Download texture pack (no Terraria needed)")
+        print()
+        choice = input("Choose [1/2]: ").strip()
+        
+        if choice == "2":
+            print()
+            print("Downloading pre-extracted texture pack...")
+            if download_texture_pack():
+                print()
+                print("=" * 60)
+                print("Setup complete! You can now run TPaint.")
+                print("=" * 60)
+                return True
+            else:
+                print("Failed to download texture pack.")
+                return False
+        else:
+            print()
+            print("Enter the path to your Terraria folder:")
+            print("(e.g., C:\\Program Files (x86)\\Steam\\steamapps\\common\\Terraria)")
+            user_path = input("> ").strip().strip('"')
+            
+            if not user_path or not Path(user_path).exists():
+                print("Invalid path.")
+                return False
+            terraria = Path(user_path)
+    
+    print(f"Found Terraria: {terraria}")
+    print()
+    
+    # Check for Java (only needed for TExtract)
     print("Checking for Java...")
     java = find_java()
     if not java:
@@ -376,24 +479,6 @@ def setup_textures():
             return False
     
     print(f"Found Java: {java}")
-    print()
-    
-    # Find Terraria
-    print("Searching for Terraria...")
-    terraria = find_terraria()
-    
-    if not terraria:
-        print("\nCould not find Terraria installation.")
-        print("Please enter the path to your Terraria folder:")
-        print("(e.g., C:\\Program Files (x86)\\Steam\\steamapps\\common\\Terraria)")
-        user_path = input("> ").strip().strip('"')
-        
-        if not user_path or not Path(user_path).exists():
-            print("Invalid path.")
-            return False
-        terraria = Path(user_path)
-    
-    print(f"Found Terraria: {terraria}")
     print()
     
     # Download TExtract
@@ -446,7 +531,76 @@ def setup_textures_gui():
     root = tk.Tk()
     root.withdraw()
     
-    # Check for Java
+    # Find Terraria first (before Java, since texture download doesn't need Java)
+    terraria = find_terraria()
+    
+    if not terraria:
+        # Ask user what they want to do
+        choice = messagebox.askyesnocancel("TPaint Setup",
+            "Could not auto-detect Terraria installation.\n\n"
+            "Do you have Terraria installed?\n\n"
+            "• Yes - Select your Terraria folder\n"
+            "• No - Download pre-extracted texture pack\n"
+            "• Cancel - Exit setup")
+        
+        if choice is None:  # Cancel
+            root.destroy()
+            return False
+        elif choice == False:  # No - Download texture pack
+            # Show download progress
+            download_win = tk.Toplevel(root)
+            download_win.title("TPaint Setup")
+            download_win.geometry("400x120")
+            download_win.resizable(False, False)
+            download_win.protocol("WM_DELETE_WINDOW", lambda: None)
+            
+            download_win.update_idletasks()
+            x = (download_win.winfo_screenwidth() - 400) // 2
+            y = (download_win.winfo_screenheight() - 120) // 2
+            download_win.geometry(f"400x120+{x}+{y}")
+            
+            tk.Label(download_win, text="Downloading Texture Pack...", font=("Arial", 12, "bold")).pack(pady=10)
+            texture_status = tk.Label(download_win, text="This may take a moment...")
+            texture_status.pack(pady=5)
+            texture_progress = ttk.Progressbar(download_win, length=350, mode='determinate')
+            texture_progress.pack(pady=10)
+            
+            def texture_progress_callback(current, total, msg):
+                if total > 0:
+                    texture_progress['value'] = int(current * 100 / total)
+                texture_status.config(text=msg)
+                download_win.update()
+            
+            download_win.update()
+            success = download_texture_pack(texture_progress_callback)
+            download_win.destroy()
+            
+            if success:
+                tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
+                walls = list(TEXTURE_DIR.glob("Wall_*.png"))
+                messagebox.showinfo("TPaint Setup", 
+                    f"Setup complete!\n\nDownloaded {len(tiles)} tiles and {len(walls)} walls.")
+                root.destroy()
+                return True
+            else:
+                messagebox.showerror("TPaint Setup", 
+                    "Failed to download texture pack.\n\n"
+                    "Please check your internet connection and try again.")
+                root.destroy()
+                return False
+        else:  # Yes - Select Terraria folder
+            terraria = filedialog.askdirectory(
+                title="Select Terraria Installation Folder",
+                initialdir="C:/Program Files (x86)/Steam/steamapps/common"
+            )
+            
+            if not terraria or not Path(terraria).exists():
+                messagebox.showerror("TPaint Setup", "No valid Terraria path selected.")
+                root.destroy()
+                return False
+            terraria = Path(terraria)
+    
+    # From here, we need Java for TExtract
     java = find_java()
     if not java:
         # Show downloading dialog
@@ -485,25 +639,6 @@ def setup_textures_gui():
                 "Then restart TPaint.")
             root.destroy()
             return False
-    
-    # Find Terraria
-    terraria = find_terraria()
-    
-    if not terraria:
-        messagebox.showinfo("TPaint Setup", 
-            "Could not auto-detect Terraria installation.\n\n"
-            "Please select your Terraria folder in the next dialog.")
-        
-        terraria = filedialog.askdirectory(
-            title="Select Terraria Installation Folder",
-            initialdir="C:/Program Files (x86)/Steam/steamapps/common"
-        )
-        
-        if not terraria or not Path(terraria).exists():
-            messagebox.showerror("TPaint Setup", "No valid Terraria path selected.")
-            root.destroy()
-            return False
-        terraria = Path(terraria)
     
     # Create progress window
     progress_win = tk.Toplevel(root)

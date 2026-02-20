@@ -2,6 +2,8 @@
 
 A visual building tool for designing Terraria structures using actual game textures.
 
+**No Terraria required!** - Texture pack available for download if you don't own the game.
+
 ## Features
 
 - **Block & Wall Layering** - Place blocks on top of walls (torches on walls, furniture in front of backgrounds)
@@ -38,9 +40,8 @@ A visual building tool for designing Terraria structures using actual game textu
 1. Download `TPaint.exe` from the [Releases](https://github.com/mharrington07/tpaint/releases) page
 2. Run `TPaint.exe`
 3. On first run, the app will:
-   - **Auto-download Java JRE** if not installed (portable, no admin needed)
-   - Download TExtract for texture extraction
-   - Find your Terraria installation
+   - Find your Terraria installation, **or** download texture pack if not installed
+   - Auto-download Java JRE if needed (only for Terraria extraction)
    - Extract textures automatically
 
 #### From Source
@@ -68,8 +69,8 @@ A visual building tool for designing Terraria structures using actual game textu
 2. Make it executable: `chmod +x TPaint`
 3. Run: `./TPaint`
 4. On first run:
-   - **Auto-downloads Java JRE** if not installed
-   - Downloads TExtract and extracts your textures
+   - Finds your Terraria installation, **or** downloads texture pack if not installed
+   - Auto-downloads Java JRE if needed (only for Terraria extraction)
 
 #### From Source
 Prerequisites: Python 3.8+ with tkinter, Terraria (Steam)

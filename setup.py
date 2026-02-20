@@ -264,8 +264,95 @@ def setup_textures():
     return True
 
 
-if __name__ == "__main__":
-    success = setup_textures()
+def setup_textures_gui():
+    """GUI-based setup for windowed mode."""
+    import tkinter as tk
+    from tkinter import messagebox, filedialog
+    
+    # Check if textures already exist
+    existing_tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
+    existing_walls = list(TEXTURE_DIR.glob("Wall_*.png"))
+    
+    if len(existing_tiles) > 700 and len(existing_walls) > 300:
+        return True
+    
+    root = tk.Tk()
+    root.withdraw()
+    
+    # Check for Java
+    java = find_java()
+    if not java:
+        messagebox.showerror("TPaint Setup", 
+            "Java Runtime not found!\n\n"
+            "TExtract requires Java to extract Terraria's textures.\n\n"
+            "Please install Java from:\n"
+            "https://adoptium.net/\n\n"
+            "Then restart TPaint.")
+        root.destroy()
+        return False
+    
+    # Find Terraria
+    terraria = find_terraria()
+    
+    if not terraria:
+        messagebox.showinfo("TPaint Setup", 
+            "Could not auto-detect Terraria installation.\n\n"
+            "Please select your Terraria folder in the next dialog.")
+        
+        terraria = filedialog.askdirectory(
+            title="Select Terraria Installation Folder",
+            initialdir="C:/Program Files (x86)/Steam/steamapps/common"
+        )
+        
+        if not terraria or not Path(terraria).exists():
+            messagebox.showerror("TPaint Setup", "No valid Terraria path selected.")
+            root.destroy()
+            return False
+        terraria = Path(terraria)
+    
+    # Show progress
+    messagebox.showinfo("TPaint Setup", 
+        f"Found Terraria at:\n{terraria}\n\n"
+        "Click OK to download TExtract and extract textures.\n"
+        "This may take a minute...")
+    
+    # Download TExtract
+    if not download_textract():
+        messagebox.showerror("TPaint Setup", "Failed to download TExtract.")
+        root.destroy()
+        return False
+    
+    # Run TExtract
+    temp_output = TEXTRACT_DIR / "extracted"
+    success, message = run_textract(terraria, temp_output)
+    
     if not success:
-        input("\nPress Enter to exit...")
+        messagebox.showerror("TPaint Setup", f"Extraction failed:\n{message}")
+        root.destroy()
+        return False
+    
+    # Move tiles and walls
+    moved = move_tiles_and_walls(temp_output, TEXTURE_DIR)
+    
+    # Cleanup
+    try:
+        shutil.rmtree(temp_output)
+    except:
+        pass
+    
+    messagebox.showinfo("TPaint Setup", 
+        f"Setup complete!\n\nExtracted {moved} texture files.")
+    
+    root.destroy()
+    return moved > 0
+
+
+if __name__ == "__main__":
+    # Console mode
+    success = setup_textures()
+    try:
+        if not success:
+            input("\nPress Enter to exit...")
+    except:
+        pass  # No stdin in windowed mode
     sys.exit(0 if success else 1)

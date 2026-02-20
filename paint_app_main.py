@@ -1158,14 +1158,13 @@ def check_textures():
     walls = list(TEXTURE_DIR.glob("Wall_*.png"))
     
     if len(tiles) < 100 or len(walls) < 100:
-        print("Textures missing - running first-time setup...")
         try:
-            from setup import setup_textures
-            if not setup_textures():
+            from setup import setup_textures_gui
+            if not setup_textures_gui():
                 return False
         except ImportError:
-            print("setup.py not found.")
-            print("Please run setup.py separately or place Terraria textures in the textures folder.")
+            messagebox.showerror("Setup Error", 
+                "setup.py not found.\n\nPlease place Terraria textures in the textures folder.")
             return False
     return True
 
@@ -1173,9 +1172,12 @@ def check_textures():
 def main():
     # Check for textures on startup
     if not check_textures():
-        print("\nCannot start without textures.")
-        print("Please run: python setup.py")
-        input("Press Enter to exit...")
+        # Show error in GUI since we may not have console
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("TPaint", 
+            "Cannot start without textures.\n\nPlease run setup.py or place Terraria textures in the textures folder.")
+        root.destroy()
         return
     
     root = tk.Tk()

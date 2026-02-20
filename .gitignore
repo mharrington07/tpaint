@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 ENV/
 .env
 
@@ -14,12 +15,25 @@ ENV/
 *.swp
 *.swo
 
-# Debug files
-debug_*.png
-
 # OS
 .DS_Store
 Thumbs.db
 
-# Don't commit extracted textures (large)
-# textures/
+# Debug and test files
+debug_*.png
+test*.png
+build.jpg
+
+# Old versions and dev files (not for release)
+paint_app.py
+paint_app_v*.py
+converter.py
+converter_v*.py
+blocks.py
+blocks_v2.py
+download_textures.py
+image_converter.py
+main.py
+xnb_extractor.py
+texture_converter.py
+tile_mapping.py

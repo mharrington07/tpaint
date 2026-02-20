@@ -9,10 +9,14 @@ A visual building tool for designing Terraria structures using actual game textu
 - **Block & Wall Layering** - Place blocks on top of walls (torches on walls, furniture in front of backgrounds)
 - **Furniture Support** - Tables, chairs, chests, and other multi-tile objects
 - **Auto-tiling** - Blocks automatically connect with the correct sprites
+- **Drawing Tools** - Line, Circle, Rectangle, Fill, Selection with move
+- **Undo/Redo** - Full history support (Ctrl+Z/Y)
+- **Project Files** - Save and load .tpaint projects
+- **Eyedropper** - Pick tiles directly from canvas
 - **Fast Search** - Filter blocks, furniture, and walls by name or ID
 - **Zoom & Pan** - Scroll to zoom, middle-click to pan
 - **Export** - Save designs as PNG images
-- **Auto-Setup** - Downloads TExtract and extracts textures from your Terraria installation
+- **Auto-Setup** - Downloads textures automatically
 
 ## Controls
 
@@ -21,11 +25,21 @@ A visual building tool for designing Terraria structures using actual game textu
 | B | Block tool |
 | W | Wall tool |
 | E | Erase all |
-| X | Erase block only |
-| Z | Erase wall only |
+| F | Fill tool |
+| L | Line tool |
+| O | Circle tool |
+| R | Rectangle tool |
+| M | Selection tool |
+| I | Eyedropper (pick tile) |
 | 1-5 | Brush sizes |
 | C | Clear canvas |
-| S | Save image |
+| S | Export PNG |
+| Ctrl+Z | Undo |
+| Ctrl+Y | Redo |
+| Ctrl+S | Save project |
+| Ctrl+O | Open project |
+| Ctrl+N | New canvas |
+| Ctrl+C/V | Copy/Paste selection |
 | Scroll | Zoom |
 | Middle-click | Pan |
 | Right-click | Erase |

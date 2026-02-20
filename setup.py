@@ -125,41 +125,59 @@ def download_textract():
         return False
 
 
-def run_textract(terraria_path, output_dir):
+def run_textract(terraria_path, output_dir, progress_callback=None):
     """Run TExtract in command-line mode."""
     java = find_java()
     if not java:
         return False, "Java not found"
     
-    content_dir = Path(terraria_path) / "Content"
+    content_dir = Path(terraria_path) / "Content" / "Images"
     if not content_dir.exists():
-        return False, f"Content folder not found: {content_dir}"
+        return False, f"Content/Images folder not found: {content_dir}"
     
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # TExtract command line: java -jar TExtract.jar -c <content_dir> -o <output_dir> -i
-    # -i = images only
-    cmd = [
-        java, "-jar", str(TEXTRACT_JAR),
-        "-c", str(content_dir),
-        "-o", str(output_dir),
-        "-i"  # Extract images only
-    ]
+    # Get all Tiles_*.xnb and Wall_*.xnb files
+    tiles = list(content_dir.glob("Tiles_*.xnb"))
+    walls = list(content_dir.glob("Wall_*.xnb"))
+    all_files = tiles + walls
     
-    print(f"Running: {' '.join(cmd)}")
-    print("This may take a minute...")
+    if not all_files:
+        return False, f"No Tiles_*.xnb or Wall_*.xnb files found in {content_dir}"
     
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode == 0:
-            return True, "Success"
-        else:
-            return False, result.stderr or result.stdout
-    except subprocess.TimeoutExpired:
-        return False, "Extraction timed out"
-    except Exception as e:
-        return False, str(e)
+    total = len(all_files)
+    extracted = 0
+    
+    if progress_callback:
+        progress_callback(0, total, "Starting extraction...")
+    
+    # TExtract CLI: java -jar TExtract.jar --outputDirectory path [files...]
+    # Process in batches to avoid command line length limits
+    batch_size = 50
+    
+    for i in range(0, len(all_files), batch_size):
+        batch = all_files[i:i + batch_size]
+        
+        cmd = [java, "-jar", str(TEXTRACT_JAR), "--outputDirectory", str(output_dir)]
+        cmd.extend(str(f) for f in batch)
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            extracted += len(batch)
+            
+            if progress_callback:
+                progress_callback(extracted, total, f"Extracted {extracted}/{total} textures...")
+                
+        except subprocess.TimeoutExpired:
+            return False, f"Extraction timed out at file {extracted}"
+        except Exception as e:
+            return False, str(e)
+    
+    if progress_callback:
+        progress_callback(total, total, "Extraction complete!")
+    
+    return True, f"Extracted {extracted} files"
 
 
 def move_tiles_and_walls(extracted_dir, texture_dir):
@@ -271,7 +289,8 @@ def setup_textures():
 def setup_textures_gui():
     """GUI-based setup for windowed mode."""
     import tkinter as tk
-    from tkinter import messagebox, filedialog
+    from tkinter import ttk, messagebox, filedialog
+    import threading
     
     # Check if textures already exist
     existing_tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
@@ -314,41 +333,101 @@ def setup_textures_gui():
             return False
         terraria = Path(terraria)
     
-    # Show progress
-    messagebox.showinfo("TPaint Setup", 
-        f"Found Terraria at:\n{terraria}\n\n"
-        "Click OK to download TExtract and extract textures.\n"
-        "This may take a minute...")
+    # Create progress window
+    progress_win = tk.Toplevel(root)
+    progress_win.title("TPaint Setup")
+    progress_win.geometry("400x150")
+    progress_win.resizable(False, False)
+    progress_win.protocol("WM_DELETE_WINDOW", lambda: None)  # Disable close
     
-    # Download TExtract
-    if not download_textract():
-        messagebox.showerror("TPaint Setup", "Failed to download TExtract.")
+    # Center the window
+    progress_win.update_idletasks()
+    x = (progress_win.winfo_screenwidth() - 400) // 2
+    y = (progress_win.winfo_screenheight() - 150) // 2
+    progress_win.geometry(f"400x150+{x}+{y}")
+    
+    tk.Label(progress_win, text="Extracting Terraria Textures...", font=("Arial", 12, "bold")).pack(pady=10)
+    
+    status_label = tk.Label(progress_win, text="Downloading TExtract...")
+    status_label.pack(pady=5)
+    
+    progress_bar = ttk.Progressbar(progress_win, length=350, mode='determinate')
+    progress_bar.pack(pady=10)
+    
+    percent_label = tk.Label(progress_win, text="0%")
+    percent_label.pack()
+    
+    progress_win.deiconify()
+    progress_win.update()
+    
+    # Result container
+    result = {"success": False, "moved": 0, "error": ""}
+    
+    def update_progress(current, total, message):
+        """Update progress bar from extraction callback."""
+        def _update():
+            if total > 0:
+                pct = int(100 * current / total)
+                progress_bar['value'] = pct
+                percent_label.config(text=f"{pct}%")
+            status_label.config(text=message)
+            progress_win.update()
+        progress_win.after(0, _update)
+    
+    def do_extraction():
+        """Run extraction in background thread."""
+        try:
+            # Download TExtract
+            progress_win.after(0, lambda: status_label.config(text="Downloading TExtract..."))
+            if not download_textract():
+                result["error"] = "Failed to download TExtract"
+                return
+            
+            # Run TExtract
+            temp_output = TEXTRACT_DIR / "extracted"
+            success, message = run_textract(terraria, temp_output, progress_callback=update_progress)
+            
+            if not success:
+                result["error"] = f"Extraction failed: {message}"
+                return
+            
+            # Move tiles and walls
+            progress_win.after(0, lambda: status_label.config(text="Organizing textures..."))
+            moved = move_tiles_and_walls(temp_output, TEXTURE_DIR)
+            
+            # Cleanup
+            try:
+                shutil.rmtree(temp_output)
+            except:
+                pass
+            
+            result["success"] = True
+            result["moved"] = moved
+            
+        except Exception as e:
+            result["error"] = str(e)
+    
+    # Run extraction in thread
+    thread = threading.Thread(target=do_extraction)
+    thread.start()
+    
+    # Wait for thread while keeping GUI responsive
+    while thread.is_alive():
+        progress_win.update()
+        progress_win.after(50)
+    
+    progress_win.destroy()
+    
+    if result["error"]:
+        messagebox.showerror("TPaint Setup", result["error"])
         root.destroy()
         return False
     
-    # Run TExtract
-    temp_output = TEXTRACT_DIR / "extracted"
-    success, message = run_textract(terraria, temp_output)
-    
-    if not success:
-        messagebox.showerror("TPaint Setup", f"Extraction failed:\n{message}")
-        root.destroy()
-        return False
-    
-    # Move tiles and walls
-    moved = move_tiles_and_walls(temp_output, TEXTURE_DIR)
-    
-    # Cleanup
-    try:
-        shutil.rmtree(temp_output)
-    except:
-        pass
-    
     messagebox.showinfo("TPaint Setup", 
-        f"Setup complete!\n\nExtracted {moved} texture files.")
+        f"Setup complete!\n\nExtracted {result['moved']} texture files.")
     
     root.destroy()
-    return moved > 0
+    return result["moved"] > 0
 
 
 if __name__ == "__main__":

@@ -288,12 +288,23 @@ class TerrariaPaint:
         
         # State
         self.tool = 'block'
+        self.layer = 'block'  # 'block' or 'wall' - what layer the current tool affects
         self.block_id = 30
         self.wall_id = 4
         self.brush = 1
         self.photos = {}
         self.search_job = None
         self.zoom = 1.0  # Zoom level (0.25 to 4.0)
+        
+        # Tool state for line/circle/select
+        self.tool_start = None  # (row, col) for line/circle start
+        self.tool_preview = []  # Preview points
+        self.fill_shape = False  # Fill shapes or outline only
+        self.selection = None  # {'r1', 'c1', 'r2', 'c2'} or None
+        self.clipboard = None  # Grid data for paste
+        
+        # Load tool icons
+        self._load_icons()
         
         # Load textures
         print("Loading textures...")
@@ -303,6 +314,23 @@ class TerrariaPaint:
         self._build_ui()
         self._bind_keys()
         self._render()
+    
+    def _load_icons(self):
+        """Load tool icons from icons folder."""
+        from pathlib import Path
+        self.icons = {}
+        icons_dir = Path(__file__).parent / "icons"
+        
+        icon_names = ['block', 'wall', 'eraser', 'fill', 'line', 'circle', 'select',
+                      'brush_1', 'brush_2', 'brush_3', 'brush_5', 'brush_10']
+        
+        for name in icon_names:
+            path = icons_dir / f"{name}.png"
+            if path.exists():
+                img = Image.open(path).convert('RGBA')
+                # Scale up for better visibility
+                img = img.resize((32, 32), Image.NEAREST)
+                self.icons[name] = ImageTk.PhotoImage(img)
     
     def _build_ui(self):
         style = ttk.Style()
@@ -342,9 +370,83 @@ class TerrariaPaint:
         main.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         
         # Left panel
-        left = ttk.Frame(main, width=280)
+        left = ttk.Frame(main, width=300)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0,8))
         left.pack_propagate(False)
+        
+        # Tools - Icon-based toolbar
+        tools = ttk.LabelFrame(left, text="Tools")
+        tools.pack(fill=tk.X, pady=(0,8))
+        
+        # Drawing tools row
+        tool_row1 = tk.Frame(tools, bg=bg_dark)
+        tool_row1.pack(fill=tk.X, pady=(8,4), padx=8)
+        
+        self.tool_var = tk.StringVar(value='block')
+        self.tool_buttons = {}
+        
+        tool_defs = [
+            ('block', 'Block [B]', 'block'),
+            ('wall', 'Wall [W]', 'wall'),
+            ('eraser', 'Eraser [E]', 'erase'),
+            ('fill', 'Fill [F]', 'fill'),
+            ('line', 'Line [L]', 'line'),
+            ('circle', 'Circle [O]', 'circle'),
+            ('select', 'Select [M]', 'select'),
+        ]
+        
+        for icon_name, tooltip, tool_val in tool_defs:
+            btn = tk.Button(tool_row1, 
+                           image=self.icons.get(icon_name),
+                           bg=bg_mid, activebackground=accent,
+                           relief='flat', bd=0, padx=4, pady=4,
+                           command=lambda t=tool_val: self._set_tool(t))
+            btn.pack(side=tk.LEFT, padx=2)
+            self.tool_buttons[tool_val] = btn
+            # Tooltip
+            self._create_tooltip(btn, tooltip)
+        
+        # Layer selection (for fill, line, circle)
+        layer_row = tk.Frame(tools, bg=bg_dark)
+        layer_row.pack(fill=tk.X, pady=4, padx=8)
+        
+        tk.Label(layer_row, text="Layer:", bg=bg_dark, fg=text, font=('Segoe UI', 9)).pack(side=tk.LEFT)
+        self.layer_var = tk.StringVar(value='block')
+        for txt, val in [("Block", "block"), ("Wall", "wall")]:
+            rb = tk.Radiobutton(layer_row, text=txt, variable=self.layer_var, value=val,
+                               bg=bg_dark, fg=text, selectcolor=bg_mid, activebackground=bg_dark,
+                               command=self._layer_changed)
+            rb.pack(side=tk.LEFT, padx=4)
+        
+        # Shape options row
+        shape_row = tk.Frame(tools, bg=bg_dark)
+        shape_row.pack(fill=tk.X, pady=(0,4), padx=8)
+        
+        self.fill_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(shape_row, text="Fill Shapes", variable=self.fill_var,
+                      bg=bg_dark, fg=text, selectcolor=bg_mid, activebackground=bg_dark,
+                      command=lambda: setattr(self, 'fill_shape', self.fill_var.get())).pack(side=tk.LEFT)
+        
+        # Brush sizes with icons
+        brush_frame = ttk.LabelFrame(left, text="Brush Size")
+        brush_frame.pack(fill=tk.X, pady=(0,8))
+        
+        brush_row = tk.Frame(brush_frame, bg=bg_dark)
+        brush_row.pack(fill=tk.X, pady=6, padx=8)
+        
+        self.brush_var = tk.IntVar(value=1)
+        self.brush_buttons = {}
+        
+        for size in [1, 2, 3, 5, 10]:
+            icon_key = f'brush_{size}'
+            btn = tk.Button(brush_row,
+                           image=self.icons.get(icon_key),
+                           bg=bg_mid, activebackground=accent,
+                           relief='flat', bd=0, padx=2, pady=2,
+                           command=lambda s=size: self._set_brush(s))
+            btn.pack(side=tk.LEFT, padx=2)
+            self.brush_buttons[size] = btn
+            self._create_tooltip(btn, f"{size}x{size} Brush [{[1,2,3,5,10].index(size)+1}]")
         
         # Grid Size - compact row
         size_frame = ttk.LabelFrame(left, text="Grid Size")
@@ -359,36 +461,6 @@ class TerrariaPaint:
         self.height_var = tk.StringVar(value=str(self.rows))
         ttk.Spinbox(size_row, from_=1, to=10000, width=6, textvariable=self.height_var).pack(side=tk.LEFT, padx=(2,12))
         ttk.Button(size_row, text="Apply", command=self._resize_grid).pack(side=tk.LEFT)
-        
-        # Tools - horizontal buttons with Erase Block and Erase Wall options
-        tools = ttk.LabelFrame(left, text="Tools")
-        tools.pack(fill=tk.X, pady=(0,8))
-        
-        row1 = ttk.Frame(tools)
-        row1.pack(fill=tk.X, pady=6, padx=8)
-        self.tool_var = tk.StringVar(value='block')
-        for text, val, key in [("Block", "block", "B"), ("Wall", "wall", "W")]:
-            btn = ttk.Radiobutton(row1, text=f"{text} [{key}]", variable=self.tool_var, value=val,
-                           command=self._tool_changed)
-            btn.pack(side=tk.LEFT, padx=4)
-        
-        row2 = ttk.Frame(tools)
-        row2.pack(fill=tk.X, pady=(0, 6), padx=8)
-        for text, val, key in [("Erase Block", "erase_block", "X"), ("Erase Wall", "erase_wall", "Z"), ("Erase All", "erase", "E")]:
-            btn = ttk.Radiobutton(row2, text=f"{text} [{key}]", variable=self.tool_var, value=val,
-                           command=self._tool_changed)
-            btn.pack(side=tk.LEFT, padx=4)
-        
-        # Brush sizes
-        brush_frame = ttk.LabelFrame(left, text="Brush Size")
-        brush_frame.pack(fill=tk.X, pady=(0,8))
-        
-        row = ttk.Frame(brush_frame)
-        row.pack(fill=tk.X, pady=6, padx=8)
-        self.brush_var = tk.IntVar(value=1)
-        for i, size in enumerate([1, 2, 3, 5, 10], 1):
-            ttk.Radiobutton(row, text=f"{size}x{size}", variable=self.brush_var, value=size,
-                           command=self._brush_changed).pack(side=tk.LEFT, padx=4)
         
         # Notebook tabs
         notebook = ttk.Notebook(left)
@@ -455,6 +527,7 @@ class TerrariaPaint:
         
         self.canvas.bind('<Button-1>', self._click)
         self.canvas.bind('<B1-Motion>', self._drag)
+        self.canvas.bind('<ButtonRelease-1>', self._release)
         self.canvas.bind('<Button-3>', self._right_click)
         self.canvas.bind('<B3-Motion>', self._right_drag)
         self.canvas.bind('<Motion>', self._hover)
@@ -473,7 +546,7 @@ class TerrariaPaint:
         status_frame.pack(fill=tk.X, side=tk.BOTTOM)
         status_frame.pack_propagate(False)
         
-        self.status = tk.StringVar(value="Ready • Scroll=Zoom • Middle-click=Pan • B/W/E/X/Z=Tools • 1-5=Brush • C=Clear • S=Save")
+        self.status = tk.StringVar(value="Ready • Scroll=Zoom • Middle-click=Pan • B/W/E/F/L/O/M=Tools • 1-5=Brush • Ctrl+C/V=Copy/Paste")
         tk.Label(status_frame, textvariable=self.status, bg=bg_mid, fg=text_dim, 
                 font=('Segoe UI', 9), anchor='w', padx=10).pack(fill=tk.BOTH, expand=True)
     
@@ -585,12 +658,48 @@ class TerrariaPaint:
         elif tab == 'wall':
             self._populate_walls(self.wall_search.get())
     
+    def _create_tooltip(self, widget, text):
+        """Create a hover tooltip for a widget."""
+        def show(e):
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{e.x_root+10}+{e.y_root+10}")
+            tk.Label(tooltip, text=text, bg='#1a1b26', fg='#c0caf5', 
+                    font=('Segoe UI', 9), padx=6, pady=3, relief='solid', bd=1).pack()
+            widget._tooltip = tooltip
+        def hide(e):
+            if hasattr(widget, '_tooltip'):
+                widget._tooltip.destroy()
+        widget.bind('<Enter>', show)
+        widget.bind('<Leave>', hide)
+    
+    def _layer_changed(self):
+        """Handle layer radio button change."""
+        self.layer = self.layer_var.get()
+    
+    def _update_tool_buttons(self):
+        """Update tool button appearances to show selection."""
+        bg_mid = self.colors['bg_mid']
+        accent = self.colors['accent']
+        for tool, btn in self.tool_buttons.items():
+            if tool == self.tool:
+                btn.config(bg=accent)
+            else:
+                btn.config(bg=bg_mid)
+        for size, btn in self.brush_buttons.items():
+            if size == self.brush:
+                btn.config(bg=accent)
+            else:
+                btn.config(bg=bg_mid)
+    
     def _bind_keys(self):
         self.root.bind('b', lambda e: self._set_tool('block'))
         self.root.bind('w', lambda e: self._set_tool('wall'))
         self.root.bind('e', lambda e: self._set_tool('erase'))
-        self.root.bind('x', lambda e: self._set_tool('erase_block'))
-        self.root.bind('z', lambda e: self._set_tool('erase_wall'))
+        self.root.bind('f', lambda e: self._set_tool('fill'))
+        self.root.bind('l', lambda e: self._set_tool('line'))
+        self.root.bind('o', lambda e: self._set_tool('circle'))
+        self.root.bind('m', lambda e: self._set_tool('select'))
         self.root.bind('1', lambda e: self._set_brush(1))
         self.root.bind('2', lambda e: self._set_brush(2))
         self.root.bind('3', lambda e: self._set_brush(3))
@@ -598,29 +707,60 @@ class TerrariaPaint:
         self.root.bind('5', lambda e: self._set_brush(10))
         self.root.bind('c', lambda e: self._clear())
         self.root.bind('s', lambda e: self._save())
+        self.root.bind('<Escape>', lambda e: self._cancel_tool())
+        self.root.bind('<Control-c>', lambda e: self._copy_selection())
+        self.root.bind('<Control-v>', lambda e: self._paste_selection())
+        self.root.bind('<Delete>', lambda e: self._delete_selection())
+    
+    def _cancel_tool(self):
+        """Cancel current tool operation."""
+        self.tool_start = None
+        self.tool_preview = []
+        self.selection = None
+        self.canvas.delete('tool_preview')
+        self.canvas.delete('selection')
+        self.status.set("Cancelled")
     
     def _set_tool(self, tool):
         self.tool = tool
         self.tool_var.set(tool)
+        self.tool_start = None
+        self.tool_preview = []
+        self.canvas.delete('tool_preview')
+        
+        # Set layer based on tool
+        if tool == 'block':
+            self.layer = 'block'
+            self.layer_var.set('block')
+        elif tool == 'wall':
+            self.layer = 'wall'
+            self.layer_var.set('wall')
+        
         tool_names = {
             'block': 'Block',
             'wall': 'Wall',
-            'erase': 'Erase All',
-            'erase_block': 'Erase Block',
-            'erase_wall': 'Erase Wall'
+            'erase': 'Eraser',
+            'fill': 'Fill',
+            'line': 'Line',
+            'circle': 'Circle',
+            'select': 'Select'
         }
         self.status.set(f"Tool: {tool_names.get(tool, tool.title())}")
+        self._update_tool_buttons()
     
     def _set_brush(self, size):
         self.brush = size
         self.brush_var.set(size)
         self.status.set(f"Brush: {size}x{size}")
+        self._update_tool_buttons()
     
     def _tool_changed(self):
         self.tool = self.tool_var.get()
+        self._update_tool_buttons()
     
     def _brush_changed(self):
         self.brush = self.brush_var.get()
+        self._update_tool_buttons()
     
     def _resize_grid(self):
         """Resize the grid, preserving existing content."""
@@ -704,15 +844,48 @@ class TerrariaPaint:
     
     def _click(self, e):
         r, c = self._get_cell(e)
-        if r is not None:
+        if r is None:
+            return
+        
+        if self.tool in ('block', 'wall', 'erase'):
             self._paint(r, c)
             self._draw_cursor(r, c)
+        elif self.tool == 'fill':
+            self._flood_fill(r, c)
+        elif self.tool in ('line', 'circle'):
+            if self.tool_start is None:
+                self.tool_start = (r, c)
+                self.status.set(f"Click second point for {self.tool}")
+            else:
+                self._complete_shape(r, c)
+        elif self.tool == 'select':
+            if self.tool_start is None:
+                self.tool_start = (r, c)
+                self.status.set("Drag to select area")
+            else:
+                self._complete_selection(r, c)
     
     def _drag(self, e):
         r, c = self._get_cell(e)
-        if r is not None:
+        if r is None:
+            return
+        
+        if self.tool in ('block', 'wall', 'erase'):
             self._paint(r, c)
             self._draw_cursor(r, c)
+        elif self.tool in ('line', 'circle', 'select') and self.tool_start:
+            self._preview_shape(r, c)
+    
+    def _release(self, e):
+        """Handle mouse button release for drag-based tools."""
+        r, c = self._get_cell(e)
+        if r is None:
+            return
+        
+        if self.tool in ('line', 'circle') and self.tool_start:
+            self._complete_shape(r, c)
+        elif self.tool == 'select' and self.tool_start:
+            self._complete_selection(r, c)
     
     def _right_click(self, e):
         r, c = self._get_cell(e)
@@ -944,6 +1117,321 @@ class TerrariaPaint:
         
         for r, c in affected:
             self._render_cell(r, c)
+    
+    def _flood_fill(self, row, col):
+        """Flood fill tool - fills connected area with same tile."""
+        # Get target cell value
+        cell = self.grid[row][col]
+        
+        if self.layer == 'block':
+            target = cell['block']
+            # Fill with current block
+            fill_value = ('block', self.block_id) if self.block_id not in FURNITURE else None
+        else:
+            target = cell['wall']
+            fill_value = self.wall_id
+        
+        if fill_value is None:
+            self.status.set("Cannot flood fill with furniture")
+            return
+        
+        # BFS flood fill
+        visited = set()
+        queue = [(row, col)]
+        affected = set()
+        
+        while queue and len(visited) < 10000:  # Limit to prevent hanging
+            r, c = queue.pop(0)
+            if (r, c) in visited:
+                continue
+            if not (0 <= r < self.rows and 0 <= c < self.cols):
+                continue
+            
+            cell = self.grid[r][c]
+            current = cell['block'] if self.layer == 'block' else cell['wall']
+            
+            if current != target:
+                continue
+            
+            visited.add((r, c))
+            
+            # Fill this cell
+            if self.layer == 'block':
+                self.grid[r][c]['block'] = fill_value
+            else:
+                self.grid[r][c]['wall'] = fill_value
+            
+            affected.add((r, c))
+            
+            # Add neighbors
+            for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                queue.append((r + dr, c + dc))
+        
+        # Re-render affected cells and neighbors
+        to_render = set()
+        for r, c in affected:
+            for dr in range(-1, 2):
+                for dc in range(-1, 2):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.rows and 0 <= nc < self.cols:
+                        to_render.add((nr, nc))
+        
+        for r, c in to_render:
+            self._render_cell(r, c)
+        
+        self.status.set(f"Filled {len(affected)} cells")
+    
+    def _preview_shape(self, end_row, end_col):
+        """Show preview of line or circle being drawn."""
+        self.canvas.delete('tool_preview')
+        
+        if not self.tool_start:
+            return
+        
+        start_r, start_c = self.tool_start
+        scaled_size = int(TILE_SIZE * self.zoom)
+        
+        if self.tool == 'line':
+            points = self._get_line_points(start_r, start_c, end_row, end_col)
+        elif self.tool == 'circle':
+            points = self._get_circle_points(start_r, start_c, end_row, end_col)
+        elif self.tool == 'select':
+            # Draw selection rectangle
+            r1, r2 = min(start_r, end_row), max(start_r, end_row)
+            c1, c2 = min(start_c, end_col), max(start_c, end_col)
+            x1, y1 = c1 * scaled_size, r1 * scaled_size
+            x2, y2 = (c2 + 1) * scaled_size, (r2 + 1) * scaled_size
+            self.canvas.create_rectangle(x1, y1, x2, y2, 
+                                         outline='#7aa2f7', width=2, 
+                                         dash=(4, 4), tags='tool_preview')
+            return
+        else:
+            return
+        
+        # Draw preview points
+        for r, c in points:
+            if 0 <= r < self.rows and 0 <= c < self.cols:
+                x, y = c * scaled_size, r * scaled_size
+                self.canvas.create_rectangle(x, y, x + scaled_size, y + scaled_size,
+                                            outline='#7aa2f7', width=1, tags='tool_preview')
+    
+    def _complete_shape(self, end_row, end_col):
+        """Complete drawing a line or circle."""
+        if not self.tool_start:
+            return
+        
+        start_r, start_c = self.tool_start
+        
+        if self.tool == 'line':
+            points = self._get_line_points(start_r, start_c, end_row, end_col)
+        elif self.tool == 'circle':
+            points = self._get_circle_points(start_r, start_c, end_row, end_col)
+        else:
+            points = []
+        
+        # Apply points to grid
+        affected = set()
+        for r, c in points:
+            if 0 <= r < self.rows and 0 <= c < self.cols:
+                if self.layer == 'block':
+                    if self.block_id not in FURNITURE:
+                        self.grid[r][c]['block'] = ('block', self.block_id)
+                else:
+                    self.grid[r][c]['wall'] = self.wall_id
+                affected.add((r, c))
+        
+        # Re-render
+        to_render = set()
+        for r, c in affected:
+            for dr in range(-1, 2):
+                for dc in range(-1, 2):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.rows and 0 <= nc < self.cols:
+                        to_render.add((nr, nc))
+        
+        for r, c in to_render:
+            self._render_cell(r, c)
+        
+        # Reset tool state
+        self.tool_start = None
+        self.canvas.delete('tool_preview')
+        self.status.set(f"Drew {self.tool} with {len(affected)} cells")
+    
+    def _get_line_points(self, r1, c1, r2, c2):
+        """Get points along a line using Bresenham's algorithm."""
+        points = []
+        
+        dr = abs(r2 - r1)
+        dc = abs(c2 - c1)
+        sr = 1 if r1 < r2 else -1
+        sc = 1 if c1 < c2 else -1
+        err = dc - dr
+        
+        r, c = r1, c1
+        
+        while True:
+            points.append((r, c))
+            
+            if r == r2 and c == c2:
+                break
+            
+            e2 = 2 * err
+            if e2 > -dr:
+                err -= dr
+                c += sc
+            if e2 < dc:
+                err += dc
+                r += sr
+        
+        # If fill_shape is True, fill the line with brush width
+        if self.fill_shape and self.brush > 1:
+            expanded = set()
+            half = self.brush // 2
+            for r, c in points:
+                for dr in range(-half, self.brush - half):
+                    for dc in range(-half, self.brush - half):
+                        expanded.add((r + dr, c + dc))
+            return list(expanded)
+        
+        return points
+    
+    def _get_circle_points(self, r1, c1, r2, c2):
+        """Get points for a circle/ellipse."""
+        # Calculate center and radii
+        center_r = (r1 + r2) // 2
+        center_c = (c1 + c2) // 2
+        radius_r = abs(r2 - r1) // 2
+        radius_c = abs(c2 - c1) // 2
+        
+        if radius_r == 0 and radius_c == 0:
+            return [(center_r, center_c)]
+        
+        points = set()
+        
+        # Midpoint ellipse algorithm
+        if radius_r == 0:
+            radius_r = 1
+        if radius_c == 0:
+            radius_c = 1
+        
+        # Draw ellipse outline
+        for angle in range(360):
+            import math
+            rad = math.radians(angle)
+            pr = int(center_r + radius_r * math.sin(rad))
+            pc = int(center_c + radius_c * math.cos(rad))
+            points.add((pr, pc))
+        
+        # If fill_shape, fill the interior
+        if self.fill_shape:
+            filled = set()
+            for r in range(center_r - radius_r, center_r + radius_r + 1):
+                for c in range(center_c - radius_c, center_c + radius_c + 1):
+                    # Check if point is inside ellipse
+                    if radius_r > 0 and radius_c > 0:
+                        dr = (r - center_r) / radius_r
+                        dc = (c - center_c) / radius_c
+                        if dr * dr + dc * dc <= 1:
+                            filled.add((r, c))
+            return list(filled)
+        
+        return list(points)
+    
+    def _complete_selection(self, end_row, end_col):
+        """Complete a selection rectangle."""
+        if not self.tool_start:
+            return
+        
+        start_r, start_c = self.tool_start
+        r1, r2 = min(start_r, end_row), max(start_r, end_row)
+        c1, c2 = min(start_c, end_col), max(start_c, end_col)
+        
+        self.selection = {'r1': r1, 'c1': c1, 'r2': r2, 'c2': c2}
+        self.tool_start = None
+        self.canvas.delete('tool_preview')
+        
+        # Draw persistent selection rectangle
+        scaled_size = int(TILE_SIZE * self.zoom)
+        x1, y1 = c1 * scaled_size, r1 * scaled_size
+        x2, y2 = (c2 + 1) * scaled_size, (r2 + 1) * scaled_size
+        self.canvas.create_rectangle(x1, y1, x2, y2, 
+                                     outline='#7aa2f7', width=2,
+                                     dash=(4, 4), tags='selection')
+        
+        width = c2 - c1 + 1
+        height = r2 - r1 + 1
+        self.status.set(f"Selected {width}x{height} area (Ctrl+C to copy, Del to delete)")
+    
+    def _copy_selection(self):
+        """Copy selected area to clipboard."""
+        if not self.selection:
+            self.status.set("No selection to copy")
+            return
+        
+        sel = self.selection
+        self.clipboard = []
+        
+        for r in range(sel['r1'], sel['r2'] + 1):
+            row_data = []
+            for c in range(sel['c1'], sel['c2'] + 1):
+                row_data.append(self.grid[r][c].copy())
+            self.clipboard.append(row_data)
+        
+        self.status.set(f"Copied {sel['r2']-sel['r1']+1}x{sel['c2']-sel['c1']+1} area")
+    
+    def _paste_selection(self):
+        """Paste clipboard at current selection or cursor."""
+        if not self.clipboard:
+            self.status.set("Nothing to paste")
+            return
+        
+        # Paste at selection origin or (0, 0)
+        start_r = self.selection['r1'] if self.selection else 0
+        start_c = self.selection['c1'] if self.selection else 0
+        
+        affected = set()
+        for dr, row_data in enumerate(self.clipboard):
+            for dc, cell_data in enumerate(row_data):
+                r, c = start_r + dr, start_c + dc
+                if 0 <= r < self.rows and 0 <= c < self.cols:
+                    self.grid[r][c] = cell_data.copy()
+                    affected.add((r, c))
+        
+        # Re-render
+        to_render = set()
+        for r, c in affected:
+            for dr in range(-1, 2):
+                for dc in range(-1, 2):
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.rows and 0 <= nc < self.cols:
+                        to_render.add((nr, nc))
+        
+        for r, c in to_render:
+            self._render_cell(r, c)
+        
+        self.status.set(f"Pasted {len(self.clipboard)}x{len(self.clipboard[0])} area")
+    
+    def _delete_selection(self):
+        """Delete selected area."""
+        if not self.selection:
+            self.status.set("No selection to delete")
+            return
+        
+        sel = self.selection
+        affected = set()
+        
+        for r in range(sel['r1'], sel['r2'] + 1):
+            for c in range(sel['c1'], sel['c2'] + 1):
+                self.grid[r][c] = {'wall': None, 'block': None}
+                affected.add((r, c))
+        
+        # Re-render
+        for r, c in affected:
+            self._render_cell(r, c)
+        
+        self.canvas.delete('selection')
+        self.selection = None
+        self.status.set(f"Deleted selection")
     
     def _get_neighbors(self, row, col, layer):
         """Get neighbors for auto-tiling. layer is 'block' or 'wall'."""

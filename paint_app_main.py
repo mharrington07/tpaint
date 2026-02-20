@@ -612,6 +612,7 @@ class TerrariaPaint:
         # Middle-click pan
         self.canvas.bind('<Button-2>', self._pan_start)
         self.canvas.bind('<B2-Motion>', self._pan_move)
+        self.canvas.bind('<ButtonRelease-2>', self._pan_end)
         self._pan_data = None
         
         # Scroll wheel zoom
@@ -939,12 +940,36 @@ class TerrariaPaint:
     def _pan_move(self, e):
         """Handle middle-click pan drag."""
         if self._pan_data:
-            dx = self._pan_data[0] - e.x
-            dy = self._pan_data[1] - e.y
+            dx = e.x - self._pan_data[0]
+            dy = e.y - self._pan_data[1]
             self._pan_data = (e.x, e.y)
-            # Scroll by pixel delta
-            self.canvas.xview_scroll(dx, 'units')
-            self.canvas.yview_scroll(dy, 'units')
+            
+            # Get current scroll position and canvas size
+            x1, x2 = self.canvas.xview()
+            y1, y2 = self.canvas.yview()
+            
+            # Calculate scroll region size
+            scaled_size = int(TILE_SIZE * self.zoom)
+            total_w = self.cols * scaled_size
+            total_h = self.rows * scaled_size
+            
+            # Sensitivity factor (0.3 = 30% of normal speed)
+            sensitivity = 0.3
+            
+            # Convert pixel delta to fraction of scroll region
+            if total_w > 0:
+                frac_x = (dx * sensitivity) / total_w
+                new_x = max(0, min(1 - (x2 - x1), x1 - frac_x))
+                self.canvas.xview_moveto(new_x)
+            
+            if total_h > 0:
+                frac_y = (dy * sensitivity) / total_h
+                new_y = max(0, min(1 - (y2 - y1), y1 - frac_y))
+                self.canvas.yview_moveto(new_y)
+    
+    def _pan_end(self, e):
+        """End middle-click pan."""
+        self._pan_data = None
         self.canvas.config(cursor='')
     
     def _zoom(self, e):
@@ -2231,38 +2256,140 @@ class TerrariaPaint:
         self.status.set("Cleared!")
     
     def _save(self):
-        path = filedialog.asksaveasfilename(defaultextension=".png",
-                                            filetypes=[("PNG", "*.png")])
-        if path:
-            img = Image.new('RGBA', (self.cols*TILE_SIZE, self.rows*TILE_SIZE), (10,10,26,255))
-            
-            # First pass: render all walls
-            for r in range(self.rows):
-                for c in range(self.cols):
-                    wall_id = self.grid[r][c]['wall']
-                    if wall_id:
-                        tile = self.cache.get_wall(wall_id)
-                        if tile:
-                            img.paste(tile, (c*TILE_SIZE, r*TILE_SIZE), tile)
-            
-            # Second pass: render all blocks/furniture on top
-            for r in range(self.rows):
-                for c in range(self.cols):
-                    block_data = self.grid[r][c]['block']
-                    if block_data:
-                        tile = None
-                        if block_data[0] == 'block':
-                            neighbors = self._get_neighbors(r, c, 'block')
-                            tile = self.cache.get_block(block_data[1], neighbors)
-                        elif block_data[0] == 'furn' and block_data[2] == 0 and block_data[3] == 0:
-                            tile = self.cache.get_furniture(block_data[1])
-                        
-                        if tile:
-                            img.paste(tile, (c*TILE_SIZE, r*TILE_SIZE), tile)
-            
-            img.save(path)
-            self.status.set(f"Saved: {path}")
-            messagebox.showinfo("Saved", f"Image saved!")
+        """Export dialog with format options."""
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[
+                ("PNG Image", "*.png"),
+                ("TPaint Project", "*.tpaint"),
+                ("TEdit Schematic", "*.TEditSch"),
+            ]
+        )
+        if not path:
+            return
+        
+        ext = os.path.splitext(path)[1].lower()
+        
+        if ext == '.tpaint':
+            self._export_tpaint(path)
+        elif ext == '.teditsch':
+            self._export_tedit(path)
+        else:  # Default to PNG
+            self._export_png(path)
+    
+    def _export_png(self, path):
+        """Export as PNG image."""
+        img = Image.new('RGBA', (self.cols*TILE_SIZE, self.rows*TILE_SIZE), (10,10,26,255))
+        
+        # First pass: render all walls
+        for r in range(self.rows):
+            for c in range(self.cols):
+                wall_id = self.grid[r][c]['wall']
+                if wall_id:
+                    tile = self.cache.get_wall(wall_id)
+                    if tile:
+                        img.paste(tile, (c*TILE_SIZE, r*TILE_SIZE), tile)
+        
+        # Second pass: render all blocks/furniture on top
+        for r in range(self.rows):
+            for c in range(self.cols):
+                block_data = self.grid[r][c]['block']
+                if block_data:
+                    tile = None
+                    if block_data[0] == 'block':
+                        neighbors = self._get_neighbors(r, c, 'block')
+                        tile = self.cache.get_block(block_data[1], neighbors)
+                    elif block_data[0] == 'furn' and block_data[2] == 0 and block_data[3] == 0:
+                        tile = self.cache.get_furniture(block_data[1])
+                    
+                    if tile:
+                        img.paste(tile, (c*TILE_SIZE, r*TILE_SIZE), tile)
+        
+        img.save(path)
+        self.status.set(f"Exported PNG: {os.path.basename(path)}")
+        messagebox.showinfo("Export", "PNG image saved!")
+    
+    def _export_tpaint(self, path):
+        """Export as TPaint project file."""
+        import json
+        
+        project = {
+            'version': '1.0',
+            'cols': self.cols,
+            'rows': self.rows,
+            'grid': []
+        }
+        
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cell = self.grid[r][c]
+                if cell['wall'] or cell['block']:
+                    entry = {'r': r, 'c': c}
+                    if cell['wall']:
+                        entry['wall'] = cell['wall']
+                    if cell['block']:
+                        entry['block'] = list(cell['block'])
+                    project['grid'].append(entry)
+        
+        try:
+            with open(path, 'w') as f:
+                json.dump(project, f)
+            self.project_path = path
+            self.status.set(f"Saved project: {os.path.basename(path)}")
+            messagebox.showinfo("Export", "TPaint project saved!")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to save: {e}")
+    
+    def _export_tedit(self, path):
+        """Export as TEdit schematic (.TEditSch) file."""
+        import json
+        
+        # TEdit schematic format (JSON-based)
+        # Reference: https://github.com/TEdit/Terraria-Map-Editor
+        schematic = {
+            'Name': os.path.splitext(os.path.basename(path))[0],
+            'Version': 1,
+            'Width': self.cols,
+            'Height': self.rows,
+            'Tiles': [],
+            'Chests': [],
+            'Signs': []
+        }
+        
+        # Build tile array (TEdit format: array of rows, each row is array of tile objects)
+        for r in range(self.rows):
+            row_data = []
+            for c in range(self.cols):
+                cell = self.grid[r][c]
+                tile_obj = {}
+                
+                # Wall
+                if cell['wall']:
+                    tile_obj['Wall'] = cell['wall']
+                
+                # Block/Tile
+                if cell['block']:
+                    block_data = cell['block']
+                    if block_data[0] == 'block':
+                        tile_obj['IsActive'] = True
+                        tile_obj['Type'] = block_data[1]
+                    elif block_data[0] == 'furn':
+                        tile_obj['IsActive'] = True
+                        tile_obj['Type'] = block_data[1]
+                        # Frame coordinates for furniture
+                        tile_obj['U'] = block_data[2] * TILE_SIZE
+                        tile_obj['V'] = block_data[3] * TILE_SIZE
+                
+                row_data.append(tile_obj if tile_obj else None)
+            schematic['Tiles'].append(row_data)
+        
+        try:
+            with open(path, 'w') as f:
+                json.dump(schematic, f, indent=2)
+            self.status.set(f"Exported TEdit: {os.path.basename(path)}")
+            messagebox.showinfo("Export", "TEdit schematic saved!\n\nImport in TEdit via:\nFile → Import → Schematic")
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to save: {e}")
 
 
 def check_textures():

@@ -14,7 +14,7 @@ import winreg
 from pathlib import Path
 
 
-TEXTRACT_URL = "https://github.com/Antag99/TExtract/releases/download/v1.7.0/TExtract.jar"
+TEXTRACT_URL = "http://bit.ly/2ieZZcs"  # Dropbox-hosted JAR via bit.ly
 TEXTRACT_DIR = Path(__file__).parent / "tools"
 TEXTRACT_JAR = TEXTRACT_DIR / "TExtract.jar"
 TEXTURE_DIR = Path(__file__).parent / "textures"
@@ -113,7 +113,11 @@ def download_textract():
     print(f"URL: {TEXTRACT_URL}")
     
     try:
-        urllib.request.urlretrieve(TEXTRACT_URL, TEXTRACT_JAR)
+        # Use Request with User-Agent for bit.ly redirect
+        req = urllib.request.Request(TEXTRACT_URL, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            with open(TEXTRACT_JAR, 'wb') as f:
+                f.write(response.read())
         print("Download complete!")
         return True
     except Exception as e:

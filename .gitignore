@@ -44,3 +44,8 @@ textures/
 
 # Tools - downloaded on first run
 tools/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec

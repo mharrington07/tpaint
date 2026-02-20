@@ -1,0 +1,104 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pillow numpy pyinstaller
+      
+      - name: Build Windows executable
+        run: |
+          pyinstaller --onefile --windowed --name TPaint `
+            --add-data "terraria_names.py;." `
+            --add-data "tile_colors.py;." `
+            --add-data "setup.py;." `
+            paint_app_main.py
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TPaint-Windows
+          path: dist/TPaint.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pillow numpy pyinstaller
+      
+      - name: Build Linux executable
+        run: |
+          pyinstaller --onefile --name TPaint \
+            --add-data "terraria_names.py:." \
+            --add-data "tile_colors.py:." \
+            --add-data "setup.py:." \
+            paint_app_main.py
+      
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TPaint-Linux
+          path: dist/TPaint
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TPaint-Windows
+          path: windows
+      
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TPaint-Linux
+          path: linux
+      
+      - name: Rename artifacts
+        run: |
+          mv windows/TPaint.exe TPaint-Windows.exe
+          mv linux/TPaint TPaint-Linux
+          chmod +x TPaint-Linux
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            TPaint-Windows.exe
+            TPaint-Linux
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

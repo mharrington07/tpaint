@@ -15,7 +15,7 @@ A visual building tool for designing Terraria structures using actual game textu
 - **Eyedropper** - Pick tiles directly from canvas
 - **Fast Search** - Filter blocks, furniture, and walls by name or ID
 - **Zoom & Pan** - Scroll to zoom, middle-click to pan
-- **Export** - Save designs as PNG images
+- **Export** - Save as PNG image, TPaint project, or TEdit schematic (.TEditSch)
 - **Auto-Setup** - Downloads textures automatically
 
 ## Controls
@@ -33,7 +33,7 @@ A visual building tool for designing Terraria structures using actual game textu
 | I | Eyedropper (pick tile) |
 | 1-5 | Brush sizes |
 | C | Clear canvas |
-| S | Export PNG |
+| S | Export (PNG/TPaint/TEdit) |
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
 | Ctrl+S | Save project |

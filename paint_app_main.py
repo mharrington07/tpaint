@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 import numpy as np
 from pathlib import Path
 import re
+import os
 
 
 TEXTURE_DIR = Path(__file__).parent / "textures"
@@ -308,6 +309,20 @@ class TerrariaPaint:
         self.move_start = None  # (row, col) where move started
         self.move_data = None  # Grid data being moved
         
+        # Undo/Redo system
+        self.undo_stack = []  # List of grid states
+        self.redo_stack = []  # List of grid states for redo
+        self.max_undo = 50  # Maximum undo steps
+        
+        # Reference image
+        self.reference_image = None  # PIL Image
+        self.reference_photo = None  # PhotoImage for display
+        self.reference_opacity = 0.5
+        self.show_reference = False
+        
+        # Project state
+        self.project_path = None  # Current .tpaint file path
+        
         # Load tool icons
         self._load_icons()
         
@@ -327,7 +342,7 @@ class TerrariaPaint:
         icons_dir = Path(__file__).parent / "icons"
         
         # Tool names that match icon filenames directly
-        tool_icons = ['block', 'wall', 'fill', 'line', 'circle', 'select', 'erase']
+        tool_icons = ['block', 'wall', 'fill', 'line', 'circle', 'rect', 'select', 'erase', 'eyedropper']
         
         for tool_name in tool_icons:
             path = icons_dir / f"{tool_name}.png"
@@ -410,7 +425,9 @@ class TerrariaPaint:
             ('fill', 'Fill [F]', 'fill'),
             ('line', 'Line [L]', 'line'),
             ('circle', 'Circle [O]', 'circle'),
+            ('rect', 'Rectangle [R]', 'rect'),
             ('select', 'Select [M]', 'select'),
+            ('eyedropper', 'Pick Tile [I]', 'eyedropper'),
         ]
         
         for icon_name, tooltip, tool_val in tool_defs:
@@ -605,7 +622,7 @@ class TerrariaPaint:
         status_frame.pack(fill=tk.X, side=tk.BOTTOM)
         status_frame.pack_propagate(False)
         
-        self.status = tk.StringVar(value="Ready • Scroll=Zoom • Middle-click=Pan • B/W/E/F/L/O/M=Tools • 1-5=Brush • Ctrl+C/V=Copy/Paste")
+        self.status = tk.StringVar(value="Ready • Ctrl+Z/Y=Undo/Redo • Ctrl+S/O=Save/Open • Ctrl+N=New • B/W/E/F/L/O/R/M/I=Tools")
         tk.Label(status_frame, textvariable=self.status, bg=bg_mid, fg=text_dim, 
                 font=('Segoe UI', 9), anchor='w', padx=10).pack(fill=tk.BOTH, expand=True)
     
@@ -791,7 +808,9 @@ class TerrariaPaint:
         self.root.bind('f', lambda e: self._set_tool('fill'))
         self.root.bind('l', lambda e: self._set_tool('line'))
         self.root.bind('o', lambda e: self._set_tool('circle'))
+        self.root.bind('r', lambda e: self._set_tool('rect'))
         self.root.bind('m', lambda e: self._set_tool('select'))
+        self.root.bind('i', lambda e: self._set_tool('eyedropper'))
         self.root.bind('1', lambda e: self._set_brush(1))
         self.root.bind('2', lambda e: self._set_brush(2))
         self.root.bind('3', lambda e: self._set_brush(3))
@@ -803,6 +822,18 @@ class TerrariaPaint:
         self.root.bind('<Control-c>', lambda e: self._copy_selection())
         self.root.bind('<Control-v>', lambda e: self._paste_selection())
         self.root.bind('<Delete>', lambda e: self._delete_selection())
+        # Undo/Redo
+        self.root.bind('<Control-z>', lambda e: self._undo())
+        self.root.bind('<Control-y>', lambda e: self._redo())
+        self.root.bind('<Control-Z>', lambda e: self._undo())
+        self.root.bind('<Control-Y>', lambda e: self._redo())
+        # Project file operations
+        self.root.bind('<Control-s>', lambda e: self._save_project())
+        self.root.bind('<Control-S>', lambda e: self._save_project())
+        self.root.bind('<Control-o>', lambda e: self._load_project())
+        self.root.bind('<Control-O>', lambda e: self._load_project())
+        self.root.bind('<Control-n>', lambda e: self._new_canvas())
+        self.root.bind('<Control-N>', lambda e: self._new_canvas())
     
     def _cancel_tool(self):
         """Cancel current tool operation."""
@@ -961,15 +992,20 @@ class TerrariaPaint:
             return
         
         if self.tool in ('block', 'wall', 'erase'):
+            self._save_undo()  # Save before painting
             self._paint(r, c)
             self._draw_cursor(r, c)
         elif self.tool == 'fill':
+            self._save_undo()  # Save before fill
             self._flood_fill(r, c)
-        elif self.tool in ('line', 'circle'):
+        elif self.tool == 'eyedropper':
+            self._eyedropper(r, c)
+        elif self.tool in ('line', 'circle', 'rect'):
             if self.tool_start is None:
                 self.tool_start = (r, c)
                 self.status.set(f"Click second point for {self.tool}")
             else:
+                self._save_undo()  # Save before completing shape
                 self._complete_shape(r, c)
         elif self.tool == 'select':
             # Check if clicking inside existing selection to move it
@@ -994,7 +1030,7 @@ class TerrariaPaint:
             self._draw_cursor(r, c)
         elif self.tool == 'select' and self.moving:
             self._preview_move(r, c)
-        elif self.tool in ('line', 'circle', 'select') and self.tool_start:
+        elif self.tool in ('line', 'circle', 'rect', 'select') and self.tool_start:
             self._preview_shape(r, c)
     
     def _release(self, e):
@@ -1003,9 +1039,11 @@ class TerrariaPaint:
         if r is None:
             return
         
-        if self.tool in ('line', 'circle') and self.tool_start:
+        if self.tool in ('line', 'circle', 'rect') and self.tool_start:
+            self._save_undo()  # Save before completing shape
             self._complete_shape(r, c)
         elif self.tool == 'select' and self.moving:
+            self._save_undo()  # Save before completing move
             self._complete_move(r, c)
         elif self.tool == 'select' and self.tool_start:
             self._complete_selection(r, c)
@@ -1318,6 +1356,8 @@ class TerrariaPaint:
             points = self._get_line_points(start_r, start_c, end_row, end_col)
         elif self.tool == 'circle':
             points = self._get_circle_points(start_r, start_c, end_row, end_col)
+        elif self.tool == 'rect':
+            points = self._get_rect_points(start_r, start_c, end_row, end_col)
         elif self.tool == 'select':
             # Draw selection rectangle
             r1, r2 = min(start_r, end_row), max(start_r, end_row)
@@ -1349,6 +1389,8 @@ class TerrariaPaint:
             points = self._get_line_points(start_r, start_c, end_row, end_col)
         elif self.tool == 'circle':
             points = self._get_circle_points(start_r, start_c, end_row, end_col)
+        elif self.tool == 'rect':
+            points = self._get_rect_points(start_r, start_c, end_row, end_col)
         else:
             points = []
         
@@ -1893,7 +1935,297 @@ class TerrariaPaint:
                 if cell['wall'] or cell['block']:
                     self._render_cell(r, c)
     
+    # =========== UNDO/REDO SYSTEM ===========
+    
+    def _save_undo(self):
+        """Save current grid state to undo stack."""
+        # Deep copy the grid
+        state = [[cell.copy() for cell in row] for row in self.grid]
+        self.undo_stack.append(state)
+        
+        # Limit stack size
+        if len(self.undo_stack) > self.max_undo:
+            self.undo_stack.pop(0)
+        
+        # Clear redo stack on new action
+        self.redo_stack.clear()
+    
+    def _undo(self):
+        """Undo last action."""
+        if not self.undo_stack:
+            self.status.set("Nothing to undo")
+            return
+        
+        # Save current state to redo
+        current = [[cell.copy() for cell in row] for row in self.grid]
+        self.redo_stack.append(current)
+        
+        # Restore previous state
+        self.grid = self.undo_stack.pop()
+        self._render()
+        self.status.set(f"Undo ({len(self.undo_stack)} left)")
+    
+    def _redo(self):
+        """Redo last undone action."""
+        if not self.redo_stack:
+            self.status.set("Nothing to redo")
+            return
+        
+        # Save current to undo
+        current = [[cell.copy() for cell in row] for row in self.grid]
+        self.undo_stack.append(current)
+        
+        # Restore redo state
+        self.grid = self.redo_stack.pop()
+        self._render()
+        self.status.set(f"Redo ({len(self.redo_stack)} left)")
+    
+    # =========== PROJECT SAVE/LOAD ===========
+    
+    def _save_project(self):
+        """Save project to .tpaint file."""
+        import json
+        
+        path = filedialog.asksaveasfilename(
+            defaultextension=".tpaint",
+            filetypes=[("TPaint Project", "*.tpaint"), ("All Files", "*.*")],
+            initialfile=os.path.basename(self.project_path) if self.project_path else "untitled.tpaint"
+        )
+        
+        if not path:
+            return
+        
+        # Build project data
+        project = {
+            'version': '1.0',
+            'cols': self.cols,
+            'rows': self.rows,
+            'grid': []
+        }
+        
+        # Serialize grid - only non-empty cells to save space
+        for r in range(self.rows):
+            for c in range(self.cols):
+                cell = self.grid[r][c]
+                if cell['wall'] or cell['block']:
+                    entry = {'r': r, 'c': c}
+                    if cell['wall']:
+                        entry['wall'] = cell['wall']
+                    if cell['block']:
+                        entry['block'] = list(cell['block'])  # Convert tuple to list for JSON
+                    project['grid'].append(entry)
+        
+        try:
+            with open(path, 'w') as f:
+                json.dump(project, f)
+            self.project_path = path
+            self.status.set(f"Project saved: {os.path.basename(path)}")
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save project:\n{e}")
+    
+    def _load_project(self):
+        """Load project from .tpaint file."""
+        import json
+        
+        path = filedialog.askopenfilename(
+            filetypes=[("TPaint Project", "*.tpaint"), ("All Files", "*.*")]
+        )
+        
+        if not path:
+            return
+        
+        try:
+            with open(path, 'r') as f:
+                project = json.load(f)
+            
+            # Save undo before loading
+            self._save_undo()
+            
+            # Resize if needed
+            new_cols = project.get('cols', 64)
+            new_rows = project.get('rows', 40)
+            
+            if new_cols != self.cols or new_rows != self.rows:
+                self.cols, self.rows = new_cols, new_rows
+                self.grid = [[{'wall': None, 'block': None} for _ in range(self.cols)] for _ in range(self.rows)]
+            else:
+                # Clear existing grid
+                for r in range(self.rows):
+                    for c in range(self.cols):
+                        self.grid[r][c] = {'wall': None, 'block': None}
+            
+            # Load grid data
+            for entry in project.get('grid', []):
+                r, c = entry['r'], entry['c']
+                if 0 <= r < self.rows and 0 <= c < self.cols:
+                    if 'wall' in entry:
+                        self.grid[r][c]['wall'] = entry['wall']
+                    if 'block' in entry:
+                        self.grid[r][c]['block'] = tuple(entry['block'])
+            
+            self.project_path = path
+            self._render()
+            self.status.set(f"Loaded: {os.path.basename(path)}")
+            
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Failed to load project:\n{e}")
+    
+    def _new_canvas(self):
+        """Create new canvas with custom size."""
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("New Canvas")
+        dialog.geometry("300x180")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center the dialog
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - 300) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 180) // 2
+        dialog.geometry(f"+{x}+{y}")
+        
+        bg = self.colors['bg_mid']
+        fg = self.colors['text']
+        dialog.configure(bg=bg)
+        
+        tk.Label(dialog, text="Canvas Size", font=('Segoe UI', 12, 'bold'), bg=bg, fg=fg).pack(pady=10)
+        
+        size_frame = tk.Frame(dialog, bg=bg)
+        size_frame.pack(pady=10)
+        
+        tk.Label(size_frame, text="Width:", bg=bg, fg=fg).grid(row=0, column=0, padx=5, pady=5)
+        width_var = tk.StringVar(value=str(self.cols))
+        width_entry = ttk.Entry(size_frame, textvariable=width_var, width=10)
+        width_entry.grid(row=0, column=1, padx=5, pady=5)
+        
+        tk.Label(size_frame, text="Height:", bg=bg, fg=fg).grid(row=1, column=0, padx=5, pady=5)
+        height_var = tk.StringVar(value=str(self.rows))
+        height_entry = ttk.Entry(size_frame, textvariable=height_var, width=10)
+        height_entry.grid(row=1, column=1, padx=5, pady=5)
+        
+        def create():
+            try:
+                new_cols = int(width_var.get())
+                new_rows = int(height_var.get())
+                if new_cols < 1 or new_rows < 1 or new_cols > 500 or new_rows > 500:
+                    messagebox.showerror("Invalid Size", "Size must be between 1 and 500")
+                    return
+                
+                self._save_undo()
+                self.cols, self.rows = new_cols, new_rows
+                self.grid = [[{'wall': None, 'block': None} for _ in range(self.cols)] for _ in range(self.rows)]
+                self.project_path = None
+                self._render()
+                self.status.set(f"New canvas: {new_cols}x{new_rows}")
+                dialog.destroy()
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Please enter valid numbers")
+        
+        btn_frame = tk.Frame(dialog, bg=bg)
+        btn_frame.pack(pady=15)
+        
+        tk.Button(btn_frame, text="Create", command=create,
+                 bg=self.colors['accent'], fg='white', padx=20, pady=5).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Cancel", command=dialog.destroy,
+                 bg=self.colors['bg_light'], fg=fg, padx=20, pady=5).pack(side=tk.LEFT, padx=5)
+    
+    def _import_reference(self):
+        """Import an image as a background reference."""
+        path = filedialog.askopenfilename(
+            filetypes=[("Images", "*.png *.jpg *.jpeg *.gif *.bmp"), ("All Files", "*.*")]
+        )
+        
+        if not path:
+            return
+        
+        try:
+            img = Image.open(path).convert('RGBA')
+            
+            # Scale to fit canvas
+            canvas_w = self.cols * TILE_SIZE
+            canvas_h = self.rows * TILE_SIZE
+            
+            # Maintain aspect ratio
+            scale = min(canvas_w / img.width, canvas_h / img.height)
+            new_w = int(img.width * scale)
+            new_h = int(img.height * scale)
+            
+            self.reference_image = img.resize((new_w, new_h), Image.LANCZOS)
+            self.show_reference = True
+            self._render()
+            self.status.set(f"Reference loaded: {os.path.basename(path)}")
+        except Exception as e:
+            messagebox.showerror("Import Error", f"Failed to load image:\n{e}")
+    
+    def _toggle_reference(self):
+        """Toggle reference image visibility."""
+        if self.reference_image:
+            self.show_reference = not self.show_reference
+            self._render()
+            self.status.set(f"Reference {'shown' if self.show_reference else 'hidden'}")
+        else:
+            self.status.set("No reference image loaded")
+    
+    # =========== EYEDROPPER TOOL ===========
+    
+    def _eyedropper(self, row, col):
+        """Pick tile/wall from canvas at position."""
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            cell = self.grid[row][col]
+            
+            # Check block layer first
+            if cell['block']:
+                block_data = cell['block']
+                if block_data[0] == 'block':
+                    self.block_id = block_data[1]
+                    name = self.cache.tile_info.get(self.block_id, {}).get('name', f'Tile {self.block_id}')
+                    self.status.set(f"Picked block: {name}")
+                    self._set_tool('block')
+                elif block_data[0] == 'furn':
+                    self.block_id = block_data[1]
+                    name = self.cache.furniture_info.get(self.block_id, {}).get('name', f'Furniture {self.block_id}')
+                    self.status.set(f"Picked furniture: {name}")
+                    self._set_tool('block')
+                return
+            
+            # Otherwise check wall layer
+            if cell['wall']:
+                self.wall_id = cell['wall']
+                name = self.cache.wall_info.get(self.wall_id, {}).get('name', f'Wall {self.wall_id}')
+                self.status.set(f"Picked wall: {name}")
+                self._set_tool('wall')
+                return
+            
+            self.status.set("Empty cell - nothing to pick")
+    
+    # =========== RECTANGLE TOOL ===========
+    
+    def _get_rect_points(self, r1, c1, r2, c2):
+        """Get all points for a rectangle (outline or filled)."""
+        points = []
+        min_r, max_r = min(r1, r2), max(r1, r2)
+        min_c, max_c = min(c1, c2), max(c1, c2)
+        
+        if self.fill_shape:
+            # Filled rectangle
+            for r in range(min_r, max_r + 1):
+                for c in range(min_c, max_c + 1):
+                    points.append((r, c))
+        else:
+            # Outline only
+            for c in range(min_c, max_c + 1):
+                points.append((min_r, c))
+                points.append((max_r, c))
+            for r in range(min_r + 1, max_r):
+                points.append((r, min_c))
+                points.append((r, max_c))
+        
+        return points
+    
     def _clear(self):
+        self._save_undo()  # Save before clearing
         self.grid = [[{'wall': None, 'block': None} for _ in range(self.cols)] for _ in range(self.rows)]
         self._render()
         self.status.set("Cleared!")

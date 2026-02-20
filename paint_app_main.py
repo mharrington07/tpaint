@@ -1153,19 +1153,19 @@ class TerrariaPaint:
 
 
 def check_textures():
-    """Check if textures exist, extract from Terraria if missing."""
+    """Check if textures exist, run setup if missing."""
     tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
     walls = list(TEXTURE_DIR.glob("Wall_*.png"))
     
     if len(tiles) < 100 or len(walls) < 100:
-        print("Textures missing - attempting to extract from Terraria...")
+        print("Textures missing - running first-time setup...")
         try:
-            from texture_extractor import setup_textures
-            if not setup_textures(TEXTURE_DIR):
+            from setup import setup_textures
+            if not setup_textures():
                 return False
         except ImportError:
-            print("texture_extractor.py not found.")
-            print("Please run it separately or place Terraria textures in the textures folder.")
+            print("setup.py not found.")
+            print("Please run setup.py separately or place Terraria textures in the textures folder.")
             return False
     return True
 
@@ -1174,7 +1174,7 @@ def main():
     # Check for textures on startup
     if not check_textures():
         print("\nCannot start without textures.")
-        print("Please ensure textures are in the 'textures' folder.")
+        print("Please run: python setup.py")
         input("Press Enter to exit...")
         return
     

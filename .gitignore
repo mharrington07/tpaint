@@ -37,6 +37,10 @@ main.py
 xnb_extractor.py
 texture_converter.py
 tile_mapping.py
+texture_extractor.py
 
 # Textures - auto-extracted from user's Terraria install
 textures/
+
+# Tools - downloaded on first run
+tools/

@@ -10,7 +10,7 @@ A visual building tool for designing Terraria structures using actual game textu
 - **Fast Search** - Filter blocks, furniture, and walls by name or ID
 - **Zoom & Pan** - Scroll to zoom, middle-click to pan
 - **Export** - Save designs as PNG images
-- **Auto-Extract** - Automatically extracts textures from your Terraria installation on first run
+- **Auto-Setup** - Downloads TExtract and extracts textures from your Terraria installation
 
 ## Controls
 
@@ -40,31 +40,25 @@ A visual building tool for designing Terraria structures using actual game textu
    python paint_app_main.py
    ```
 
-3. On first run, the app will automatically find your Terraria installation and extract the needed textures.
-
-## Textures
-
-The app automatically extracts textures from Terraria on first run. It looks for:
-- Steam installation (Windows)
-- GOG installation
-
-If auto-detection fails, you'll be prompted to enter your Terraria path manually.
-
-You can also manually run the extractor:
-```bash
-python texture_extractor.py
-```
+3. On first run, the setup will:
+   - Download TExtract (texture extraction tool)
+   - Find your Terraria installation
+   - Extract the needed tile/wall textures
 
 ## Requirements
 
-- Python 3.8+
-- Pillow
-- NumPy
-- tkinter (included with Python)
+- **Python 3.8+** with Pillow and NumPy
+- **Java Runtime** (for TExtract - download from [Adoptium](https://adoptium.net/))
 - **Terraria** (Steam or GOG installation)
+
+## Manual Setup
+
+If auto-setup fails, you can run it manually:
+```bash
+python setup.py
+```
 
 ## Credits
 
-- **Texture Extraction** based on [TExtract](https://github.com/Antag99/TExtract) by Antag99 (MIT License)
-- LZX decompression based on MonoGame's LzxDecoder (MS-PL/LGPL 2.1)
+- **[TExtract](https://github.com/Antag99/TExtract)** by Antag99 (MIT License) - Texture extraction
 - Terraria is property of Re-Logic

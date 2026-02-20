@@ -290,7 +290,6 @@ def setup_textures_gui():
     """GUI-based setup for windowed mode."""
     import tkinter as tk
     from tkinter import ttk, messagebox, filedialog
-    import threading
     
     # Check if textures already exist
     existing_tiles = list(TEXTURE_DIR.glob("Tiles_*.png"))
@@ -360,74 +359,50 @@ def setup_textures_gui():
     progress_win.deiconify()
     progress_win.update()
     
-    # Result container
-    result = {"success": False, "moved": 0, "error": ""}
-    
     def update_progress(current, total, message):
-        """Update progress bar from extraction callback."""
-        def _update():
-            if total > 0:
-                pct = int(100 * current / total)
-                progress_bar['value'] = pct
-                percent_label.config(text=f"{pct}%")
-            status_label.config(text=message)
-            progress_win.update()
-        progress_win.after(0, _update)
-    
-    def do_extraction():
-        """Run extraction in background thread."""
-        try:
-            # Download TExtract
-            progress_win.after(0, lambda: status_label.config(text="Downloading TExtract..."))
-            if not download_textract():
-                result["error"] = "Failed to download TExtract"
-                return
-            
-            # Run TExtract
-            temp_output = TEXTRACT_DIR / "extracted"
-            success, message = run_textract(terraria, temp_output, progress_callback=update_progress)
-            
-            if not success:
-                result["error"] = f"Extraction failed: {message}"
-                return
-            
-            # Move tiles and walls
-            progress_win.after(0, lambda: status_label.config(text="Organizing textures..."))
-            moved = move_tiles_and_walls(temp_output, TEXTURE_DIR)
-            
-            # Cleanup
-            try:
-                shutil.rmtree(temp_output)
-            except:
-                pass
-            
-            result["success"] = True
-            result["moved"] = moved
-            
-        except Exception as e:
-            result["error"] = str(e)
-    
-    # Run extraction in thread
-    thread = threading.Thread(target=do_extraction)
-    thread.start()
-    
-    # Wait for thread while keeping GUI responsive
-    while thread.is_alive():
+        """Update progress bar - called from main thread."""
+        if total > 0:
+            pct = int(100 * current / total)
+            progress_bar['value'] = pct
+            percent_label.config(text=f"{pct}%")
+        status_label.config(text=message)
         progress_win.update()
-        progress_win.after(50)
     
-    progress_win.destroy()
-    
-    if result["error"]:
-        messagebox.showerror("TPaint Setup", result["error"])
+    # Download TExtract
+    update_progress(0, 100, "Downloading TExtract...")
+    if not download_textract():
+        progress_win.destroy()
+        messagebox.showerror("TPaint Setup", "Failed to download TExtract.")
         root.destroy()
         return False
     
+    # Run TExtract (synchronous with progress updates)
+    temp_output = TEXTRACT_DIR / "extracted"
+    success, message = run_textract(terraria, temp_output, progress_callback=update_progress)
+    
+    if not success:
+        progress_win.destroy()
+        messagebox.showerror("TPaint Setup", f"Extraction failed:\n{message}")
+        root.destroy()
+        return False
+    
+    # Move tiles and walls
+    update_progress(100, 100, "Organizing textures...")
+    moved = move_tiles_and_walls(temp_output, TEXTURE_DIR)
+    
+    # Cleanup
+    try:
+        shutil.rmtree(temp_output)
+    except:
+        pass
+    
+    progress_win.destroy()
+    
     messagebox.showinfo("TPaint Setup", 
-        f"Setup complete!\n\nExtracted {result['moved']} texture files.")
+        f"Setup complete!\n\nExtracted {moved} texture files.")
     
     root.destroy()
-    return result["moved"] > 0
+    return moved > 0
 
 
 if __name__ == "__main__":
